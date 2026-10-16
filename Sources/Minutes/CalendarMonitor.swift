@@ -30,14 +30,14 @@ final class CalendarMonitor: NSObject, UNUserNotificationCenterDelegate {
 
   var menuStatus: String {
     if requestingAccess { return "Connecting Calendar…" }
-    guard enabled else { return "Calendar reminders off" }
+    guard enabled else { return "Calendar Reminders Off" }
     guard EKEventStore.authorizationStatus(for: .event) == .fullAccess else {
-      return "Calendar access needed"
+      return "Calendar Access Needed"
     }
-    guard !selectedCalendarIDs.isEmpty else { return "Choose calendars in Settings" }
+    guard !selectedCalendarIDs.isEmpty else { return "Choose Calendars in Settings" }
     return upcoming.isEmpty
-      ? "No upcoming meetings"
-      : "\(upcoming.count) upcoming meeting\(upcoming.count == 1 ? "" : "s")"
+      ? "No Upcoming Meetings"
+      : "\(upcoming.count) Upcoming Meeting\(upcoming.count == 1 ? "" : "s")"
   }
 
   init(preferences: UserDefaults = .standard) {

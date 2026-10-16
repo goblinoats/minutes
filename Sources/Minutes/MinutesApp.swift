@@ -8,7 +8,6 @@ typealias ViewState<Value> = SwiftUI.State<Value>
 @main
 struct MinutesApp: App {
   @Environment(\.openWindow) private var openWindow
-  @Environment(\.openSettings) private var openSettings
   @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
   @ViewState private var model = AppModel()
   @ViewState private var preferences = AppPreferences()
@@ -26,10 +25,6 @@ struct MinutesApp: App {
       configureBackgroundServices()
     }
     .commands {
-      CommandGroup(replacing: .appSettings) {
-        Button("Settings…") { openSettings() }
-          .keyboardShortcut(",", modifiers: .command)
-      }
       CommandGroup(replacing: .newItem) {
         Button("New Meeting") {
           openWindow(id: "main")
@@ -37,10 +32,10 @@ struct MinutesApp: App {
         }
         .keyboardShortcut("n", modifiers: .command)
         .disabled(model.isBusy || model.isRecording)
-        Button("Import recording…") { model.importRecording() }
+        Button("Import Recording…") { model.importRecording() }
           .keyboardShortcut("i", modifiers: .command)
           .disabled(model.isBusy || model.isRecording)
-        Button("Import system audio & microphone…") { model.importRecording(paired: true) }
+        Button("Import System Audio & Microphone…") { model.importRecording(paired: true) }
           .disabled(model.isBusy || model.isRecording)
       }
       CommandGroup(after: .pasteboard) {
@@ -108,7 +103,7 @@ private struct MinutesMenu: View {
       }
     }
     if let error = model.error {
-      Button("Recording or transcription needs attention…") { showWindow() }
+      Button("Recording or Transcription Needs Attention…") { showWindow() }
         .help(error)
     }
     Divider()
