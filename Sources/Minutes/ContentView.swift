@@ -162,7 +162,7 @@ struct ContentView: View {
       CalendarRecordingPrompt(model: model, meeting: meeting)
     }
     .alert(
-      "Move Meeting to Trash?",
+      "Move meeting to Trash?",
       isPresented: Binding(
         get: { model.meetingToDelete != nil }, set: { if !$0 { model.meetingToDelete = nil } }
       ), presenting: model.meetingToDelete
@@ -174,7 +174,7 @@ struct ContentView: View {
       }
     } message: { meeting in
       Text(
-        "“\(meeting.title)” and its recordings, transcript, and Minutes exports will be moved to Finder’s Trash. Audio needed by other meetings is preserved. You can recover the files from Trash until you empty it."
+        "“\(meeting.title)” and its recordings, transcript, and Minutes exports will be moved to Finder’s Trash."
       )
     }
     .alert(
@@ -190,12 +190,22 @@ struct ContentView: View {
       }.disabled(meetingName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
     .alert(
-      "Minutes",
-      isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })
+      model.summaryError == nil ? "Minutes" : "Summary failed",
+      isPresented: Binding(
+        get: { model.error != nil || model.summaryError != nil },
+        set: {
+          if !$0 {
+            model.error = nil
+            model.summaryError = nil
+          }
+        })
     ) {
-      Button("OK") { model.error = nil }
+      Button("OK") {
+        model.error = nil
+        model.summaryError = nil
+      }
     } message: {
-      Text(model.error ?? "")
+      Text(model.summaryError ?? model.error ?? "")
     }
   }
 
@@ -450,6 +460,13 @@ private struct TranscriptView: View {
             .monospacedDigit()
           }.font(.subheadline).foregroundStyle(.secondary)
           Divider()
+          MeetingSummaryView(
+            summary: meeting.currentSummary,
+            isGenerating: model.summarizingMeetingID == meeting.id,
+            canGenerate: !meeting.utterances.isEmpty && !model.isBusy && !model.isRecording
+              && !model.chatGPT.busy && model.summarizingMeetingID == nil,
+            generate: { model.generateSummary(meeting) }
+          ).id(meeting.id)
           if meeting.utterances.isEmpty {
             Text("No speech was detected in this recording.").foregroundStyle(.secondary)
           }
@@ -618,6 +635,8 @@ private struct ReprocessTranscriptView: View {
 private struct TranscriptPlaybackControls: View {
   let model: AppModel
   let meeting: Meeting
+  @ViewState private var hoveringSeekBar = false
+
   var body: some View {
     HStack(spacing: 20) {
       HStack(spacing: 16) {
@@ -653,12 +672,14 @@ private struct TranscriptPlaybackControls: View {
           )
           .font(.caption.monospacedDigit()).foregroundStyle(.secondary).fixedSize()
         }
-        ProgressView(
-          value: min(model.playback.position, meeting.duration), total: max(1, meeting.duration)
+        PlaybackSeekBar(
+          position: model.playback.position, duration: meeting.duration,
+          enabled: !model.isBusy && !model.isRecording,
+          expanded: hoveringSeekBar,
+          seek: { model.play(meeting, from: $0) }
         )
-        .tint(.secondary)
-        .accessibilityLabel("Playback progress")
-        .accessibilityValue(MarkdownExporter.timestamp(model.playback.position))
+        .frame(height: 16)
+        .onHover { hoveringSeekBar = $0 }
       }
     }
   }

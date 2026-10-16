@@ -27,6 +27,7 @@ final class AppModel {
     }
   }
   let playback = RecordingPlayback()
+  let chatGPT: ChatGPTConnection
   var savedSpeakers: [String] {
     didSet { preferences.set(savedSpeakers, forKey: "savedSpeakers") }
   }
@@ -46,6 +47,9 @@ final class AppModel {
   var modelsReady = false
   var status = "Ready when you are"
   var error: String?
+  var summaryError: String?
+  private(set) var summarizingMeetingID: UUID?
+  private var summaryTask: Task<Void, Never>?
   var recordingStarted: Date?
   var exportDirectory: URL {
     didSet { preferences.set(exportDirectory.path, forKey: "exportDirectory") }
@@ -64,10 +68,11 @@ final class AppModel {
 
   init(
     supportDirectory: URL? = nil, preferences: UserDefaults = .standard,
-    modelIdleMinuteDuration: Duration = .seconds(60)
+    modelIdleMinuteDuration: Duration = .seconds(60), chatGPT: ChatGPTConnection? = nil
   ) {
     self.modelIdleMinuteDuration = modelIdleMinuteDuration
     self.preferences = preferences
+    self.chatGPT = chatGPT ?? ChatGPTConnection(defaults: preferences)
     modelIdleMinutes = max(0, preferences.object(forKey: "modelIdleMinutes") as? Int ?? 10)
     calendarMonitor = CalendarMonitor(preferences: preferences)
     defaultQuality =
@@ -140,14 +145,14 @@ final class AppModel {
 
   private func setStatus(_ text: String) { status = text }
 
-  private func retain(_ meeting: Meeting) throws {
+  private func retain(_ meeting: Meeting, select: Bool = true) throws {
     try store.save(meeting)
     if let index = meetings.firstIndex(where: { $0.id == meeting.id }) {
       meetings[index] = meeting
     } else {
       meetings.insert(meeting, at: 0)
     }
-    selection = meeting.id
+    if select { selection = meeting.id }
   }
 
   func start(systemSpeakers: Int? = nil) {
@@ -273,6 +278,9 @@ final class AppModel {
     try retain(updated)  // Save before export, so a folder error cannot lose the transcript.
     let exported = try writeExport(updated)
     status = "Exported \(exported.lastPathComponent)"
+    if chatGPT.automaticSummaries && !updated.utterances.isEmpty {
+      startSummary(updated)
+    }
   }
 
   func addSavedSpeaker(_ name: String) {
@@ -342,10 +350,52 @@ final class AppModel {
     } catch { self.error = error.localizedDescription }
   }
 
+  func generateSummary(_ meeting: Meeting) {
+    guard !isBusy && !isRecording else { return }
+    startSummary(meeting)
+  }
+
+  private func startSummary(_ meeting: Meeting) {
+    guard summarizingMeetingID == nil, !chatGPT.busy,
+      let snapshot = meetings.first(where: { $0.id == meeting.id })
+    else { return }
+    summarizingMeetingID = snapshot.id
+    summaryError = nil
+    summaryTask = Task {
+      defer {
+        summarizingMeetingID = nil
+        summaryTask = nil
+      }
+      do {
+        let summary = try await chatGPT.summarize(snapshot)
+        try Task.checkCancellation()
+        // Keep concurrent edits/export metadata and never restore a deleted meeting.
+        guard var current = meetings.first(where: { $0.id == snapshot.id }) else { return }
+        guard current.summaryInputDigest == snapshot.summaryInputDigest else {
+          throw ChatGPTError(
+            "The transcript changed while summarizing. Click Summarize to try again.")
+        }
+        current.summary = summary
+        try retain(current, select: false)
+        try writeExport(current)
+      } catch is CancellationError {
+      } catch {
+        if !Task.isCancelled { summaryError = error.localizedDescription }
+      }
+    }
+  }
+
   func export(_ meeting: Meeting) {
+    guard !isBusy && !isRecording else { return }
     do {
-      let url = try writeExport(meeting)
+      let current = meetings.first(where: { $0.id == meeting.id }) ?? meeting
+      let url = try writeExport(current)
       status = "Markdown exported"
+      if chatGPT.automaticSummaries && current.currentSummary == nil
+        && !current.utterances.isEmpty
+      {
+        startSummary(current)
+      }
       NSWorkspace.shared.activateFileViewerSelecting([url])
     } catch { self.error = error.localizedDescription }
   }
@@ -365,13 +415,14 @@ final class AppModel {
     let destination = MarkdownExporter.destination(current, in: exportDirectory)
     if !(current.exportFiles ?? []).contains(destination) {
       current.exportFiles = (current.exportFiles ?? []) + [destination]
-      try retain(current)
+      try retain(current, select: false)
     }
     return try MarkdownExporter.write(current, to: exportDirectory)
   }
 
   func moveToTrash(_ meeting: Meeting) {
     guard !isBusy && !isRecording else { return }
+    if summarizingMeetingID == meeting.id { summaryTask?.cancel() }
     playback.stop()
     isBusy = true
     status = "Moving meeting to Trash…"

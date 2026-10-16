@@ -34,6 +34,7 @@ public struct Meeting: Codable, Identifiable, Equatable, Sendable {
   public var transcribedAt: Date?
   public var transcriptionOptions: TranscriptionOptions?
   public var exportFiles: [URL]?
+  public var summary: MeetingSummary?
 
   public init(
     id: UUID = UUID(), title: String, date: Date = Date(), duration: Double = 0,
@@ -98,6 +99,7 @@ public struct Meeting: Codable, Identifiable, Equatable, Sendable {
   }
   public func reprocessedDraft(options: TranscriptionOptions) -> Meeting {
     var result = self
+    result.summary = nil
     result.utterances = []
     result.speakerNames = [:]
     result.transcribedAt = nil
@@ -130,8 +132,12 @@ public enum MarkdownExporter {
     let date = ISO8601DateFormatter().string(from: meeting.date)
     var lines = [
       "# \(escape(meeting.title))", "", "Date: \(date)",
-      "Duration: \(timestamp(meeting.duration))", "", "## Transcript", "",
+      "Duration: \(timestamp(meeting.duration))", "",
     ]
+    if let summary = meeting.currentSummary {
+      lines += ["## Summary", "", summary.markdown, ""]
+    }
+    lines += ["## Transcript", ""]
     for utterance in meeting.utterances.sorted(by: { $0.start < $1.start }) {
       lines += [
         "**\(escape(meeting.name(for: utterance)))** · \(timestamp(utterance.start))",

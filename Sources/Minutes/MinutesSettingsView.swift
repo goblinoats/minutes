@@ -10,6 +10,8 @@ struct MinutesSettingsView: View {
   var body: some View {
     VStack(spacing: 0) {
       TabView {
+        SummarySettingsView(connection: model.chatGPT)
+          .tabItem { Label("Summaries", systemImage: "text.alignleft") }
         Form {
           Section("Startup") {
             Toggle(
