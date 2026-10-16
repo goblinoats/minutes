@@ -635,7 +635,6 @@ private struct ReprocessTranscriptView: View {
 private struct TranscriptPlaybackControls: View {
   let model: AppModel
   let meeting: Meeting
-  @ViewState private var hoveringSeekBar = false
 
   var body: some View {
     HStack(spacing: 20) {
@@ -648,7 +647,7 @@ private struct TranscriptPlaybackControls: View {
           systemImage: model.playback.isPlaying ? "pause.fill" : "play.fill"
         ) {
           model.togglePlayback()
-        }.font(.title2).frame(width: 28)
+        }.font(.title).imageScale(.large).frame(width: 34)
         Button("Forward 15 seconds", systemImage: "goforward.15") {
           model.play(meeting, from: min(meeting.duration, model.playback.position + 15))
         }
@@ -656,30 +655,21 @@ private struct TranscriptPlaybackControls: View {
       .labelStyle(.iconOnly).buttonStyle(.plain).font(.title3)
       .disabled(model.isBusy || model.isRecording)
 
-      VStack(alignment: .leading, spacing: 6) {
+      PlaybackSeekBar(
+        position: model.playback.position, duration: meeting.duration,
+        enabled: !model.isBusy && !model.isRecording,
+        seek: { model.play(meeting, from: $0) }
+      ) {
         let speakers = meeting.speakers(at: model.playback.position)
-        HStack(alignment: .firstTextBaseline) {
-          Text(meeting.title).font(.headline).lineLimit(1)
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+          Text(meeting.title).font(.headline).lineLimit(1).layoutPriority(1)
           Text("·").foregroundStyle(.secondary).accessibilityHidden(true)
           Text(speakers.isEmpty ? "No speech" : speakers.joined(separator: ", "))
             .font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
             .help(speakers.joined(separator: ", "))
             .accessibilityLabel("Current speaker")
             .accessibilityValue(speakers.isEmpty ? "No speech" : speakers.joined(separator: ", "))
-          Spacer(minLength: 8)
-          Text(
-            "\(MarkdownExporter.timestamp(model.playback.position)) / \(MarkdownExporter.timestamp(meeting.duration))"
-          )
-          .font(.caption.monospacedDigit()).foregroundStyle(.secondary).fixedSize()
         }
-        PlaybackSeekBar(
-          position: model.playback.position, duration: meeting.duration,
-          enabled: !model.isBusy && !model.isRecording,
-          expanded: hoveringSeekBar,
-          seek: { model.play(meeting, from: $0) }
-        )
-        .frame(height: 16)
-        .onHover { hoveringSeekBar = $0 }
       }
     }
   }
