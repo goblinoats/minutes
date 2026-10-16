@@ -10,8 +10,6 @@ struct MinutesSettingsView: View {
   var body: some View {
     VStack(spacing: 0) {
       TabView {
-        SummarySettingsView(connection: model.chatGPT)
-          .tabItem { Label("Summaries", systemImage: "text.alignleft") }
         Form {
           Section("Startup") {
             Toggle(
@@ -152,6 +150,8 @@ struct MinutesSettingsView: View {
         }.formStyle(.grouped).scrollContentBackground(.hidden).tabItem {
           Label("Transcription", systemImage: "waveform")
         }
+        SummarySettingsView(connection: model.chatGPT)
+          .tabItem { Label("Summaries", systemImage: "text.alignleft") }
       }
     }.frame(width: 600, height: 590)
       .onAppear { preferences.refreshLoginStatus() }
