@@ -101,14 +101,17 @@ struct MinutesSettingsView: View {
           Label("General", systemImage: "gearshape")
         }
         Form {
-          Section("Your Voice") {
+          Section {
             TextField("Your Name", text: $model.defaultMicrophoneSpeaker, prompt: Text("You"))
+          } header: {
+            Text("Your Voice")
+          } footer: {
             Text(
               "Used for microphone speech in new and regenerated transcripts. Leave blank to use You."
             )
             .font(.caption).foregroundStyle(.secondary)
           }
-          Section("Saved Speakers") {
+          Section {
             if model.savedSpeakers.isEmpty {
               Text("Add the people you meet with, then name their passages in Review Speakers.")
                 .foregroundStyle(.secondary)
@@ -125,6 +128,9 @@ struct MinutesSettingsView: View {
               Button("Add") { saveSpeaker() }
                 .disabled(newSpeakerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
+          } header: {
+            Text("Saved Speakers")
+          } footer: {
             Text(
               "Names are shortcuts for manual assignment, not voice profiles. Removing a name leaves existing transcripts unchanged."
             )
@@ -137,7 +143,7 @@ struct MinutesSettingsView: View {
           Section("Speaker Analysis") {
             SpeakerAnalysisPicker(quality: $model.defaultQuality)
           }
-          Section("Local Models") {
+          Section {
             LabeledContent("Status", value: model.modelsReady ? "Loaded" : "Not loaded")
             Picker("Unload after idle", selection: $model.modelIdleMinutes) {
               Text("Never").tag(0)
@@ -149,6 +155,9 @@ struct MinutesSettingsView: View {
             }
             Button("Unload Models") { model.unloadModels() }
               .disabled(!model.modelsReady || model.isBusy || model.isRecording)
+          } header: {
+            Text("Local Models")
+          } footer: {
             Text(
               "Models download on first use and load automatically. Unloading frees memory and keeps downloaded files."
             )
