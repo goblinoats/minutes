@@ -71,6 +71,7 @@ struct ContentView: View {
             Button("Settings", systemImage: "gearshape") { openSettings() }
               .labelStyle(.iconOnly).buttonStyle(.borderless).help("Settings")
           }.padding(14)
+            .background(.regularMaterial)
         }
         .overlay {
           if filteredMeetings.isEmpty && !search.isEmpty {
@@ -367,53 +368,44 @@ private struct TranscriptView: View {
   @ViewState private var speakerName = ""
 
   private func speakerSidebar(scroll: ScrollViewProxy) -> some View {
-    VStack(spacing: 0) {
-      Text("Speakers").font(.headline)
-        .frame(maxWidth: .infinity, alignment: .leading).padding()
-      Divider()
-      if meeting.firstSpeakerUtterances.isEmpty {
-        ContentUnavailableView(
-          "No speakers", systemImage: "person.2", description: Text("No speech was detected."))
-      } else {
-        List(meeting.firstSpeakerUtterances) { first in
-          VStack(alignment: .leading, spacing: 8) {
-            Button {
-              scroll.scrollTo(first.id, anchor: .top)
-              model.play(meeting, from: first.start)
-            } label: {
-              VStack(alignment: .leading, spacing: 4) {
-                Text(meeting.name(for: first.speaker)).font(.headline)
-                Text("\(first.speaker) · \(MarkdownExporter.timestamp(first.start))")
-                  .font(.caption).foregroundStyle(.secondary)
-              }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-            }.buttonStyle(.plain)
-              .help("Go to and play the first appearance of \(meeting.name(for: first.speaker))")
-            if first.speaker == "Unassigned" {
-              Text(
-                "These passages may contain different people. Assign each passage in the transcript."
-              )
-              .font(.caption).foregroundStyle(.secondary)
-              if let legacyName = meeting.speakerNames["Unassigned"] {
-                Text("Previous bulk label: \(legacyName). Review passages individually.")
-                  .font(.caption).foregroundStyle(.secondary)
+    List {
+      Section {
+        if meeting.firstSpeakerUtterances.isEmpty {
+          ContentUnavailableView(
+            "No speakers", systemImage: "person.2", description: Text("No speech was detected."))
+        } else {
+          ForEach(meeting.firstSpeakerUtterances) { first in
+            VStack(alignment: .leading, spacing: 8) {
+              Button {
+                scroll.scrollTo(first.id, anchor: .top)
+                model.play(meeting, from: first.start)
+              } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                  Text(meeting.name(for: first.speaker)).font(.headline)
+                  Text("\(first.speaker) · \(MarkdownExporter.timestamp(first.start))")
+                    .font(.caption).foregroundStyle(.secondary)
+                }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+              }.buttonStyle(.plain)
+                .help("Go to and play the first appearance of \(meeting.name(for: first.speaker))")
+              if first.speaker != "Unassigned" {
+                Menu("Assign Person") {
+                  bulkNameActions(first.speaker)
+                }.menuStyle(.borderlessButton).fixedSize()
               }
-            } else {
-              Menu("Assign Person") {
-                bulkNameActions(first.speaker)
-              }.menuStyle(.borderlessButton).fixedSize()
-            }
-          }.padding(.vertical, 6)
-            .disabled(model.isBusy || model.isRecording)
-        }.listStyle(.plain).scrollContentBackground(.hidden)
+            }.padding(.vertical, 6)
+              .disabled(model.isBusy || model.isRecording)
+          }
+        }
+      } header: {
+        Text("Speakers")
+      } footer: {
+        Text(
+          "Click a speaker to jump to their first appearance and listen. Assign a saved person or enter a name."
+        )
       }
-      Divider()
-      Text(
-        "Click a speaker to jump to their first appearance and listen. Assign a saved person or enter a name."
-      )
-      .font(.caption).foregroundStyle(.secondary).padding()
     }
+    .listStyle(.sidebar)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .background(Color(nsColor: .windowBackgroundColor))
   }
 
   @ViewBuilder

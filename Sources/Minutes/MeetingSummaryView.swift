@@ -14,49 +14,42 @@ struct MeetingSummaryView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       HStack(spacing: 12) {
-        Button {
-          if summary == nil {
-            isExpanded = true
-            generate()
-          } else {
-            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
-              isExpanded.toggle()
+        if isGenerating && summary == nil {
+          summaryLabel
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Summarizing")
+        } else {
+          Button {
+            if summary == nil {
+              isExpanded = true
+              generate()
+            } else {
+              withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
+                isExpanded.toggle()
+              }
+            }
+          } label: {
+            summaryLabel
+              .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel(isGenerating ? "Summarizing" : "Summarize")
+          .disabled(summary == nil && !canGenerate)
+          .accessibilityValue(
+            summary == nil ? "Not generated" : isExpanded ? "Expanded" : "Collapsed"
+          )
+          .accessibilityHint(
+            summary == nil ? "Generate summary" : isExpanded ? "Collapse summary" : "Expand summary"
+          )
+          .help(
+            summary == nil ? "Generate summary" : isExpanded ? "Collapse summary" : "Expand summary"
+          )
+          .contextMenu {
+            if summary != nil {
+              Button("Regenerate Summary", action: generate).disabled(!canGenerate)
             }
           }
-        } label: {
-          HStack(spacing: 5) {
-            SummarySymbol()
-              .fill(Color(nsColor: .systemGray))
-              .frame(width: 16, height: 16)
-              .accessibilityHidden(true)
-            Text("Summarize")
-              .font(.system(size: 13, weight: .bold))
-              .foregroundStyle(Color(nsColor: .systemGray))
-          }
-          .frame(minHeight: 28)
-          .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Summarize")
-        .disabled(summary == nil && !canGenerate)
-        .accessibilityValue(
-          summary == nil ? "Not generated" : isExpanded ? "Expanded" : "Collapsed"
-        )
-        .accessibilityHint(
-          summary == nil ? "Generate summary" : isExpanded ? "Collapse summary" : "Expand summary"
-        )
-        .help(
-          summary == nil ? "Generate summary" : isExpanded ? "Collapse summary" : "Expand summary"
-        )
-        .contextMenu {
-          if summary != nil {
-            Button("Regenerate Summary", action: generate).disabled(!canGenerate)
-          }
-        }
 
-        if isGenerating {
-          ProgressView().controlSize(.small)
-          Text("Summarizing…").font(.caption).foregroundStyle(.secondary)
         }
         Spacer()
         if let summary {
@@ -99,29 +92,62 @@ struct MeetingSummaryView: View {
       copyFeedback = nil
     }
   }
+
+  private var summaryLabel: some View {
+    HStack(alignment: .firstTextBaseline, spacing: 4) {
+      SummaryActivityIcon(isAnimating: isGenerating && !reduceMotion)
+        .frame(width: 16, height: 16)
+        .accessibilityHidden(true)
+      Text(isGenerating ? "Summarizing…" : "Summarize")
+        .font(.system(size: 13, weight: .bold))
+        .foregroundStyle(Color(nsColor: .systemGray))
+    }
+    .frame(minHeight: 28)
+  }
+
 }
 
-/// Mail's summary glyph: two text lines over a curved arrow with a filled head.
-private struct SummarySymbol: Shape {
-  func path(in rect: CGRect) -> Path {
-    func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
-      CGPoint(x: rect.minX + x / 16 * rect.width, y: rect.minY + y / 16 * rect.height)
+private struct SummaryActivityIcon: View {
+  let isAnimating: Bool
+
+  var body: some View {
+    Group {
+      if #available(macOS 26, *) {
+        if isAnimating {
+          DrawingSummarySymbol()
+        } else {
+          Image(systemName: "text.line.2.summary")
+        }
+      } else {
+        Image(systemName: "text.alignleft")
+      }
     }
-    var lines = Path()
-    for (y, end) in [(CGFloat(3), CGFloat(12)), (7, 9)] {
-      lines.move(to: point(5, y))
-      lines.addLine(to: point(end, y))
-    }
-    lines.move(to: point(1, 3))
-    lines.addLine(to: point(1, 8))
-    lines.addQuadCurve(to: point(5, 12), control: point(1, 12))
-    lines.addLine(to: point(12, 12))
-    var result = lines.strokedPath(
-      StrokeStyle(lineWidth: rect.width / 16, lineCap: .round, lineJoin: .round))
-    result.move(to: point(11, 9))
-    result.addLine(to: point(15, 12))
-    result.addLine(to: point(11, 15))
-    result.closeSubpath()
-    return result
+    .font(.system(size: 13, weight: .regular))
+    .foregroundStyle(Color(nsColor: .systemGray))
+  }
+}
+
+@available(macOS 26, *)
+private struct DrawingSummarySymbol: View {
+  // Draw On's active state is hidden; drawing occurs when it becomes inactive.
+  @ViewState private var isHidden = true
+
+  var body: some View {
+    Image(systemName: "text.line.2.summary")
+      .symbolEffect(.drawOn.byLayer, options: .nonRepeating, isActive: isHidden)
+      .task {
+        do {
+          // Let the initial hidden state mount before drawing the symbol on.
+          try await Task.sleep(for: .milliseconds(50))
+          while !Task.isCancelled {
+            isHidden = false
+            try await Task.sleep(for: .seconds(1.8))
+            isHidden = true
+            try await Task.sleep(for: .milliseconds(800))
+          }
+        } catch {
+          // Removing the loading view cancels this cycle.
+        }
+      }
   }
 }
