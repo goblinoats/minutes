@@ -31,6 +31,9 @@ final class AppModel {
   var savedSpeakers: [String] {
     didSet { preferences.set(savedSpeakers, forKey: "savedSpeakers") }
   }
+  var defaultMicrophoneSpeaker: String {
+    didSet { preferences.set(defaultMicrophoneSpeaker, forKey: "defaultMicrophoneSpeaker") }
+  }
   var defaultQuality: TranscriptionOptions.Quality {
     didSet { preferences.set(defaultQuality.rawValue, forKey: "transcriptionQuality") }
   }
@@ -79,6 +82,7 @@ final class AppModel {
       TranscriptionOptions.Quality(
         rawValue: preferences.string(forKey: "transcriptionQuality") ?? "") ?? .thorough
     savedSpeakers = preferences.stringArray(forKey: "savedSpeakers") ?? []
+    defaultMicrophoneSpeaker = preferences.string(forKey: "defaultMicrophoneSpeaker") ?? ""
     let support =
       supportDirectory
       ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[
@@ -273,6 +277,7 @@ final class AppModel {
       await self?.setStatus(text)
     }
     updated.duration = max(updated.duration, updated.utterances.map(\.end).max() ?? 0)
+    applyDefaultMicrophoneSpeaker(to: &updated)
     updated.transcribedAt = Date()
     modelsReady = true
     try retain(updated)  // Save before export, so a folder error cannot lose the transcript.
@@ -281,6 +286,14 @@ final class AppModel {
     if chatGPT.automaticSummaries && !updated.utterances.isEmpty {
       startSummary(updated)
     }
+  }
+
+  func applyDefaultMicrophoneSpeaker(to meeting: inout Meeting) {
+    let name = defaultMicrophoneSpeaker.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !name.isEmpty, meeting.speakerNames["You"] == nil,
+      meeting.utterances.contains(where: { $0.speaker == "You" })
+    else { return }
+    meeting.speakerNames["You"] = name
   }
 
   func addSavedSpeaker(_ name: String) {
@@ -474,7 +487,7 @@ final class AppModel {
     if paired {
       panel.title = "Choose Microphone Audio"
       panel.message =
-        "Choose your microphone recording. Both files must start at the same point in the meeting. Microphone speech will be labelled You."
+        "Choose your microphone recording. Both files must start at the same point in the meeting. Set your name in Settings → Speakers to label your microphone speech."
       panel.prompt = "Import Both"
       guard panel.runModal() == .OK, let url = panel.url else { return }
       microphone = url

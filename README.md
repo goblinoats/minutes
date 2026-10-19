@@ -27,3 +27,5 @@ open dist/Minutes.app
 Models download automatically on first use. Recordings and transcription stay on your Mac.
 
 Settings include saved speakers, calendar meeting reminders, an export folder, and automatic model unloading.
+
+Set **Settings → Speakers → Your Name** to name your microphone speech in new and regenerated transcripts. Leave it blank to keep **You**. Changing this setting leaves existing transcripts unchanged.

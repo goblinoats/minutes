@@ -101,6 +101,13 @@ struct MinutesSettingsView: View {
           Label("General", systemImage: "gearshape")
         }
         Form {
+          Section("Your Voice") {
+            TextField("Your Name", text: $model.defaultMicrophoneSpeaker, prompt: Text("You"))
+            Text(
+              "Used for microphone speech in new and regenerated transcripts. Leave blank to use You."
+            )
+            .font(.caption).foregroundStyle(.secondary)
+          }
           Section("Saved Speakers") {
             if model.savedSpeakers.isEmpty {
               Text("Add the people you meet with, then name their passages in Review Speakers.")
