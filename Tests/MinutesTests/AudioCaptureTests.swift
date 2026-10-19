@@ -82,3 +82,74 @@ private func sample(at time: Double) throws -> CMSampleBuffer {
   try remote.read(into: restored)
   #expect(restored.floatChannelData![1][479] == 0.125)
 }
+
+@Test func closedCaptureWriterFailsWithoutAborting() throws {
+  let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+  try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+  defer { try? FileManager.default.removeItem(at: directory) }
+  let sink = AudioSink(directory: directory)
+  sink.consume(try sample(at: 100), of: .microphone)
+  let writer = try #require(sink.files[.microphone])
+  writer.close()
+  sink.consume(try sample(at: 101), of: .microphone)
+  #expect(sink.failure != nil)
+  #expect(throws: (any Error).self) { try sink.finish() }
+  let retained = try AVAudioFile(forReading: directory.appendingPathComponent("microphone.caf"))
+  #expect(retained.length == 16_000)
+  #expect(
+    FileManager.default.fileExists(atPath: directory.appendingPathComponent("tracks.json").path))
+}
+
+// Fault injection for the Objective-C exception in the supplied crash report.
+// Swift do/catch cannot intercept a failure raised by this nonthrowing getter.
+private final class PositionUnavailableAudioFile: AVAudioFile, @unchecked Sendable {
+  override var framePosition: AVAudioFramePosition {
+    get {
+      NSException(
+        name: .internalInconsistencyException,
+        reason: "Injected AVAudioFile.framePosition failure", userInfo: nil
+      ).raise()
+      return 0
+    }
+    set { super.framePosition = newValue }
+  }
+}
+
+@Test func captureDoesNotQueryWriterPosition() throws {
+  let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+  try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+  defer { try? FileManager.default.removeItem(at: directory) }
+  let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1))
+  let sink = AudioSink(directory: directory)
+  sink.files[.microphone] = try PositionUnavailableAudioFile(
+    forWriting: directory.appendingPathComponent("microphone.caf"), settings: format.settings)
+  sink.firstTimes[.microphone] = 100
+  sink.consume(try sample(at: 100), of: .microphone)
+  sink.consume(try sample(at: 100.5), of: .audio)
+  sink.consume(try sample(at: 103), of: .microphone)
+  sink.consume(try sample(at: 104), of: .microphone)
+  sink.consume(try sample(at: 102.5), of: .audio)
+  let tracks = try sink.finish()
+  #expect(tracks.microphoneOffset == 0)
+  #expect(tracks.remoteOffset == 0.5)
+  let file = try AVAudioFile(forReading: #require(tracks.microphone))
+  #expect(file.length == 80_000)
+  let buffer = try #require(
+    AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 8192))
+  var samples: [Float] = []
+  while samples.count < Int(file.length) {
+    try file.read(
+      into: buffer, frameCount: AVAudioFrameCount(min(8192, Int(file.length) - samples.count)))
+    try #require(buffer.frameLength > 0)
+    samples.append(
+      contentsOf: UnsafeBufferPointer(
+        start: buffer.floatChannelData![0], count: Int(buffer.frameLength)))
+  }
+  #expect(samples[0] == 0.25)
+  #expect(samples[20_000] == 0)
+  #expect(samples[47_999] == 0)
+  #expect(samples[48_000] == 0.25)
+  #expect(samples[79_999] == 0.25)
+  let remote = try AVAudioFile(forReading: #require(tracks.remote))
+  #expect(remote.length == 48_000)
+}

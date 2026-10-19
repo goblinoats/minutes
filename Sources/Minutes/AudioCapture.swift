@@ -19,6 +19,7 @@ enum CaptureTrack { case audio, microphone }
 final class AudioSink: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, @unchecked Sendable {
   let directory: URL
   var files: [CaptureTrack: AVAudioFile] = [:]
+  private var writtenFrames: [CaptureTrack: AVAudioFramePosition] = [:]
   var firstTimes: [CaptureTrack: Double] = [:]
   var failure: Error?
   var microphoneClock: CMClock?
@@ -75,11 +76,14 @@ final class AudioSink: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, @
           settings: format.settings, commonFormat: format.commonFormat,
           interleaved: format.isInterleaved)
         firstTimes[outputType] = time
+        writtenFrames[outputType] = 0
       }
       guard let file = files[outputType], let first = firstTimes[outputType] else { return }
       // Preserve silence between callbacks so independent tracks stay synchronized.
       let expected = AVAudioFramePosition(max(0, (time - first) * format.sampleRate))
-      var gap = expected - file.framePosition
+      // framePosition can raise an Objective-C exception that Swift catch cannot handle.
+      // These files are append-only; count frames only after successful writes instead.
+      var gap = expected - writtenFrames[outputType, default: 0]
       if gap > AVAudioFramePosition(format.sampleRate * 60) {
         throw MinutesError.message(
           "Audio capture was interrupted for over a minute. The partial recording is retained.")
@@ -92,9 +96,11 @@ final class AudioSink: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, @
           if let data = audioBuffer.mData { memset(data, 0, Int(audioBuffer.mDataByteSize)) }
         }
         try file.write(from: silence)
+        writtenFrames[outputType, default: 0] += AVAudioFramePosition(count)
         gap -= AVAudioFramePosition(count)
       }
       try file.write(from: buffer)
+      writtenFrames[outputType, default: 0] += AVAudioFramePosition(buffer.frameLength)
     } catch {
       failure = error
       onFailure?(error.localizedDescription)
