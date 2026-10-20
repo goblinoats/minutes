@@ -25,6 +25,7 @@ struct MinutesApp: App {
       configureBackgroundServices()
     }
     .commands {
+      TranscriptFindCommands()
       CommandGroup(replacing: .newItem) {
         Button("New Meeting") {
           openWindow(id: "main")

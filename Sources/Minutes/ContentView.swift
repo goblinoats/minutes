@@ -366,6 +366,110 @@ private struct TranscriptView: View {
   @ViewState private var speakerToRename: String?
   @ViewState private var passageToRename: UUID?
   @ViewState private var speakerName = ""
+  @ViewState private var transcriptQuery = ""
+  @ViewState private var searchResultIndex = 0
+  @ViewState private var searchFocusRequest = 0
+  @ViewState private var isFindVisible = false
+  @ViewState private var searchOptions = TranscriptSearch.Options()
+
+  private func showFind() {
+    isFindVisible = true
+    searchFocusRequest += 1
+  }
+
+  private func dismissFind() {
+    isFindVisible = false
+    transcriptQuery = ""
+    searchResultIndex = 0
+  }
+
+  private var searchMatches: [TranscriptSearch.Match] {
+    TranscriptSearch.matches(in: meeting.utterances, query: transcriptQuery, options: searchOptions)
+  }
+
+  private func highlightedText(
+    _ utterance: Utterance, selected: TranscriptSearch.Match?
+  ) -> Text {
+    var result = Text("")
+    var start = utterance.text.startIndex
+    for range in TranscriptSearch.ranges(
+      in: utterance.text, query: transcriptQuery, options: searchOptions)
+    {
+      result = result + Text(String(utterance.text[start..<range.lowerBound]))
+      let isSelected = selected?.utteranceID == utterance.id && selected?.range == range
+      result =
+        result
+        + Text(String(utterance.text[range]))
+        .foregroundColor(.black).customAttribute(FindHighlight(selected: isSelected))
+      start = range.upperBound
+    }
+    return result + Text(String(utterance.text[start...]))
+  }
+
+  private func canMoveSearch(by offset: Int) -> Bool {
+    isFindVisible
+      && TranscriptSearch.nextIndex(
+        from: searchResultIndex, offset: offset, count: searchMatches.count,
+        wrapAround: searchOptions.wrapAround) != nil
+  }
+
+  private func searchBar(scroll: ScrollViewProxy) -> some View {
+    let matches = searchMatches
+    return HStack(spacing: 8) {
+      TranscriptSearchField(
+        text: $transcriptQuery, options: $searchOptions, focusRequest: searchFocusRequest,
+        next: { moveSearchResult(by: 1, matches: matches, scroll: scroll) },
+        previous: { moveSearchResult(by: -1, matches: matches, scroll: scroll) },
+        dismiss: dismissFind
+      )
+      .frame(minWidth: 100, maxWidth: .infinity)
+      .frame(height: 22)
+      if !transcriptQuery.isEmpty {
+        Text(
+          matches.isEmpty ? "No matches" : "\(searchResultIndex + 1) of \(matches.count) matches"
+        )
+        .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+      }
+      ControlGroup {
+        Button("Previous Match", systemImage: "chevron.left") {
+          moveSearchResult(by: -1, matches: matches, scroll: scroll)
+        }.help("Previous match (Shift-Return)").disabled(!canMoveSearch(by: -1))
+        Button("Next Match", systemImage: "chevron.right") {
+          moveSearchResult(by: 1, matches: matches, scroll: scroll)
+        }.help("Next match (Return)").disabled(!canMoveSearch(by: 1))
+      }
+      .disabled(matches.isEmpty)
+      Button("Done", action: dismissFind)
+        .keyboardShortcut(.cancelAction)
+    }
+    .labelStyle(.iconOnly).controlSize(.small)
+    .padding(.horizontal, 8).padding(.vertical, 4)
+    .background(Color(nsColor: .windowBackgroundColor))
+    .onChange(of: transcriptQuery) {
+      searchResultIndex = 0
+      if let first = searchMatches.first { scroll.scrollTo(first.utteranceID, anchor: .center) }
+    }
+    .onChange(of: meeting.id) {
+      transcriptQuery = ""
+      searchResultIndex = 0
+    }
+    .onChange(of: matches) {
+      searchResultIndex = 0
+      if let first = matches.first { scroll.scrollTo(first.utteranceID, anchor: .center) }
+    }
+  }
+
+  private func moveSearchResult(
+    by offset: Int, matches: [TranscriptSearch.Match], scroll: ScrollViewProxy
+  ) {
+    guard
+      let next = TranscriptSearch.nextIndex(
+        from: searchResultIndex, offset: offset, count: matches.count,
+        wrapAround: searchOptions.wrapAround)
+    else { return }
+    searchResultIndex = next
+    scroll.scrollTo(matches[searchResultIndex].utteranceID, anchor: .center)
+  }
 
   private func speakerSidebar(scroll: ScrollViewProxy) -> some View {
     List {
@@ -388,9 +492,18 @@ private struct TranscriptView: View {
               }.buttonStyle(.plain)
                 .help("Go to and play the first appearance of \(meeting.name(for: first.speaker))")
               if first.speaker != "Unassigned" {
-                Menu("Assign Person") {
+                Menu {
                   bulkNameActions(first.speaker)
-                }.menuStyle(.borderlessButton).fixedSize()
+                } label: {
+                  HStack(spacing: 4) {
+                    Text("Assign Person")
+                    Image(systemName: "chevron.down").font(.caption.weight(.semibold))
+                      .accessibilityHidden(true)
+                  }
+                  .foregroundStyle(.primary)
+                }
+                .menuStyle(.button).menuIndicator(.hidden)
+                .buttonStyle(.plain).fixedSize()
               }
             }.padding(.vertical, 6)
               .disabled(model.isBusy || model.isRecording)
@@ -438,6 +551,8 @@ private struct TranscriptView: View {
   }
 
   var body: some View {
+    let matches = searchMatches
+    let selected = matches.indices.contains(searchResultIndex) ? matches[searchResultIndex] : nil
     ScrollViewReader { scroll in
       ScrollView {
         LazyVStack(alignment: .leading, spacing: 24) {
@@ -486,7 +601,8 @@ private struct TranscriptView: View {
               Button {
                 model.play(meeting, from: utterance.start)
               } label: {
-                Text(utterance.text)
+                highlightedText(utterance, selected: selected)
+                  .textRenderer(FindHighlightRenderer())
                   .font(.system(size: 16)).lineSpacing(6)
                   .frame(maxWidth: .infinity, alignment: .leading)
                   .contentShape(Rectangle())
@@ -504,20 +620,42 @@ private struct TranscriptView: View {
             }.id(utterance.id)
           }
         }.padding(28).padding(.bottom, 100).frame(maxWidth: 860).frame(maxWidth: .infinity)
-      }.background(Color(nsColor: .windowBackgroundColor))
-        .clipped()
-        .overlay(alignment: .bottom) {
-          if !model.isRecording && !model.isBusy {
-            TranscriptPlaybackControls(model: model, meeting: meeting)
-              .padding(.horizontal, 20).padding(.vertical, 12)
-              .frame(maxWidth: 680).controlSurface(cornerRadius: 32, clearGlass: true)
-              .padding(.horizontal, 24).padding(.bottom, 16)
+      }.background {
+        Color(nsColor: .windowBackgroundColor)
+        if !matches.isEmpty {
+          // Mail's find presentation keeps matches white against a dimmed document.
+          Color.black.opacity(0.22)
+        }
+      }
+      .clipped()
+      .safeAreaInset(edge: .top, spacing: 0) {
+        if isFindVisible {
+          VStack(spacing: 0) {
+            searchBar(scroll: scroll)
+            Divider()
           }
         }
-        .inspector(isPresented: $showSpeakers) {
-          speakerSidebar(scroll: scroll)
-            .inspectorColumnWidth(min: 240, ideal: 280, max: 360)
+      }
+      .focusedSceneValue(
+        \.transcriptFind,
+        TranscriptFindActions(
+          show: showFind,
+          next: { moveSearchResult(by: 1, matches: searchMatches, scroll: scroll) },
+          previous: { moveSearchResult(by: -1, matches: searchMatches, scroll: scroll) },
+          canGoNext: canMoveSearch(by: 1), canGoPrevious: canMoveSearch(by: -1))
+      )
+      .overlay(alignment: .bottom) {
+        if !model.isRecording && !model.isBusy {
+          TranscriptPlaybackControls(model: model, meeting: meeting)
+            .padding(.horizontal, 20).padding(.vertical, 12)
+            .frame(maxWidth: 680).controlSurface(cornerRadius: 32, clearGlass: true)
+            .padding(.horizontal, 24).padding(.bottom, 16)
         }
+      }
+      .inspector(isPresented: $showSpeakers) {
+        speakerSidebar(scroll: scroll)
+          .inspectorColumnWidth(min: 240, ideal: 280, max: 360)
+      }
     }
     .alert(
       passageToRename == nil ? "Rename Speaker" : "Assign This Passage",
