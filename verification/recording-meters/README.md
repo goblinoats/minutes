@@ -27,9 +27,10 @@ System audio means the selected browser and its helpers, as in the existing tap.
 - Live browser/microphone input, full-app recording/stop interaction, VoiceOver and the full test suite were not exercised. The previous task identified unrelated Keychain-dependent fixtures in the full suite. The running app was not restarted.
 
 The recognition removal was committed separately as `6027d7e`. This recording UI
-increment remains uncommitted for visual review.
+increment was committed as checkpoint `0fa97fe`. The subsequent industrial design
+refinement and its current render script live in `verification/recording-industrial`.
 
-To reproduce the renders from the repository root:
+To reproduce these historical renders from the repository root at checkpoint `0fa97fe`:
 
 ```sh
 xcrun swiftc Sources/Minutes/RecordingLevels.swift Sources/Minutes/RecordingView.swift verification/recording-meters/probe.swift -o /tmp/minutes-recording-preview

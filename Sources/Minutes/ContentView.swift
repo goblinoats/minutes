@@ -230,13 +230,16 @@ struct ContentView: View {
         calendarBanner(invitation)
       }
       if model.isRecording {
-        RecordingView(levels: model.recordingLevels)
-          .task {
-            while !Task.isCancelled && model.isRecording {
-              await model.refreshRecordingLevels()
-              do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
-            }
+        RecordingView(
+          levels: model.recordingLevels, startedAt: model.recordingStarted,
+          canStop: !model.isBusy, onStop: { model.stop() }
+        )
+        .task {
+          while !Task.isCancelled && model.isRecording {
+            await model.refreshRecordingLevels()
+            do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
           }
+        }
       } else if let meeting = model.selectedMeeting, meeting.isTranscribed {
         TranscriptView(model: model, meeting: meeting, showSpeakers: $showSpeakers)
           .id(meeting.id)
@@ -257,9 +260,7 @@ struct ContentView: View {
       Color(nsColor: .windowBackgroundColor).ignoresSafeArea(.container, edges: .top)
     }
     .overlay(alignment: .bottom) {
-      if model.isRecording {
-        recordingControls
-      } else if model.isBusy {
+      if model.isBusy && !model.isRecording {
         activityBar
       }
     }
@@ -275,28 +276,6 @@ struct ContentView: View {
       ProgressView().controlSize(.small)
       Text(model.status).fixedSize(horizontal: false, vertical: true)
       Spacer(minLength: 0)
-    }
-    .padding(.horizontal, 20).padding(.vertical, 14)
-    .frame(maxWidth: 520)
-    .controlSurface(cornerRadius: 32, clearGlass: true)
-    .padding(.horizontal, 24).padding(.bottom, 16)
-  }
-
-  private var recordingControls: some View {
-    HStack(spacing: 12) {
-      Circle().fill(.red).frame(width: 8, height: 8).accessibilityHidden(true)
-      Text("Recording").fontWeight(.medium)
-      TimelineView(.periodic(from: .now, by: 1)) { context in
-        Text(
-          MarkdownExporter.timestamp(
-            context.date.timeIntervalSince(model.recordingStarted ?? context.date))
-        )
-        .monospacedDigit().foregroundStyle(.secondary)
-        .accessibilityLabel("Recording duration")
-      }
-      Spacer(minLength: 20)
-      Button("Stop & Transcribe", systemImage: "stop.fill") { model.stop() }
-        .buttonStyle(.bordered)
     }
     .padding(.horizontal, 20).padding(.vertical, 14)
     .frame(maxWidth: 520)
