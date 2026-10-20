@@ -49,14 +49,6 @@ struct VocabularySettingsView: View {
           }
         }
       }
-      Section {
-        Toggle("Improve recognition", isOn: $model.vocabularyBoosting)
-      } footer: {
-        Text(
-          "Listens for your words while transcribing, catching some that would otherwise be misheard. Downloads a 100 MB English model and adds a few minutes per hour of audio."
-        )
-        .font(.caption).foregroundStyle(.secondary)
-      }
     }.formStyle(.grouped).scrollContentBackground(.hidden)
   }
 

@@ -1,5 +1,11 @@
 # Acoustic vocabulary boosting spike (2026-10-20)
 
+Historical experiment: removed from Minutes on 2026-10-20 after real use showed
+aggressive substitutions of unrelated phrases. The results below describe the
+original spike, not the current transcription pipeline. Its implementation and
+boost-specific tests have been removed; deterministic spelling corrections and
+explicit replacements remain.
+
 ## Verdict
 
 **Positive, as an opt-in.** FluidAudio 0.17.5's CTC vocabulary rescoring fixes mishearings that deterministic Replacements could not predict, such as Superbase, Akanjo/Akonjo and Zatelkaston/Zatelkastin/Zatelkuston. The timings of all other words are unchanged. With FluidAudio's similarity gate (0.52, raised to 0.55 for more than 10 terms) it also rewrote an ordinary word into an unspoken dictionary term. Minutes raises the gate to 0.60. In every measured run this removed all false replacements and kept every true correction.

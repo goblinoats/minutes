@@ -28,6 +28,15 @@ private func words(_ text: String) -> [TimedWord] {
   #expect(result[0] == TimedWord(text: "(kubectl)", start: 0, end: 1.5))
 }
 
+@Test func dictionaryDoesNotReplaceSimilarSoundingWords() {
+  let corrections = TranscriptCorrections(dictionary: ["Supabase", "Okonjo", "Terraform"])
+  let input = words("Superbase and Akanjo discussed terra form.")
+  let result = corrections.apply(to: input)
+  #expect(result.map(\.text) == ["Superbase", "and", "Akanjo", "discussed", "Terraform."])
+  #expect(Array(result.prefix(4)) == Array(input.prefix(4)))
+  #expect(result[4] == TimedWord(text: "Terraform.", start: 4, end: 5.5))
+}
+
 @Test func punctuationBetweenWordsEndsAPhrase() {
   let corrections = TranscriptCorrections(
     dictionary: ["FluidAudio"], replacements: [.init(heard: "cube control", replacement: "kubectl")]

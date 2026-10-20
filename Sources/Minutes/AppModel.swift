@@ -39,9 +39,6 @@ final class AppModel {
       preferences.set(try? JSONEncoder().encode(corrections), forKey: "transcriptCorrections")
     }
   }
-  var vocabularyBoosting: Bool {
-    didSet { preferences.set(vocabularyBoosting, forKey: "vocabularyBoosting") }
-  }
   var defaultQuality: TranscriptionOptions.Quality {
     didSet { preferences.set(defaultQuality.rawValue, forKey: "transcriptionQuality") }
   }
@@ -95,7 +92,6 @@ final class AppModel {
       preferences.data(forKey: "transcriptCorrections").flatMap {
         try? JSONDecoder().decode(TranscriptCorrections.self, from: $0)
       } ?? .init()
-    vocabularyBoosting = preferences.bool(forKey: "vocabularyBoosting")
     let support =
       supportDirectory
       ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[
@@ -286,8 +282,7 @@ final class AppModel {
     updated.transcriptionOptions = options
     try await loadModels()
     updated.utterances = try await transcription.transcribe(
-      tracks, options: options, corrections: corrections,
-      boostTerms: vocabularyBoosting ? corrections.dictionary : []
+      tracks, options: options, corrections: corrections
     ) {
       [weak self] text in
       await self?.setStatus(text)

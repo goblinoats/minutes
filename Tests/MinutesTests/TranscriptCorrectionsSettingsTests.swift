@@ -12,7 +12,9 @@ import Testing
     preferences.removePersistentDomain(forName: suite)
     try? FileManager.default.removeItem(at: directory)
   }
-  let model = AppModel(supportDirectory: directory, preferences: preferences)
+  let connection = ChatGPTConnection(defaults: preferences, initialAccounts: [])
+  let model = AppModel(
+    supportDirectory: directory, preferences: preferences, chatGPT: connection)
   #expect(model.corrections.isEmpty)
   model.addDictionaryTerm("  Openai ")
   model.addDictionaryTerm("OpenAI")
@@ -26,14 +28,12 @@ import Testing
   model.addReplacement(heard: "missing", replacement: " ")
   #expect(model.corrections.replacements == [.init(heard: "Cube Control", replacement: "kubectl")])
 
-  #expect(!model.vocabularyBoosting)
-  model.vocabularyBoosting = true
-
-  let reloaded = AppModel(supportDirectory: directory, preferences: preferences)
+  let reloaded = AppModel(
+    supportDirectory: directory, preferences: preferences, chatGPT: connection)
   #expect(reloaded.corrections == model.corrections)
-  #expect(reloaded.vocabularyBoosting)
   reloaded.corrections.dictionary.removeAll { $0 == "OpenAI" }
   #expect(
-    AppModel(supportDirectory: directory, preferences: preferences).corrections.dictionary
+    AppModel(supportDirectory: directory, preferences: preferences, chatGPT: connection)
+      .corrections.dictionary
       == ["FluidAudio"])
 }
