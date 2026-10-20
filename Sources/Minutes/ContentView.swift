@@ -229,7 +229,15 @@ struct ContentView: View {
       if let invitation = model.calendarMonitor.invitations.first {
         calendarBanner(invitation)
       }
-      if let meeting = model.selectedMeeting, meeting.isTranscribed {
+      if model.isRecording {
+        RecordingView(levels: model.recordingLevels)
+          .task {
+            while !Task.isCancelled && model.isRecording {
+              await model.refreshRecordingLevels()
+              do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
+            }
+          }
+      } else if let meeting = model.selectedMeeting, meeting.isTranscribed {
         TranscriptView(model: model, meeting: meeting, showSpeakers: $showSpeakers)
           .id(meeting.id)
       } else if let meeting = model.selectedMeeting, !model.isRecording && !model.isBusy {

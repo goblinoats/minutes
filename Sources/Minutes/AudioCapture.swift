@@ -24,6 +24,13 @@ final class AudioSink: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, @
   var failure: Error?
   var microphoneClock: CMClock?
   let onFailure: (@Sendable (String) -> Void)?
+  private var microphoneLevel = RecordingLevelAccumulator()
+  private var systemLevel = RecordingLevelAccumulator()
+
+  func takeLevels() -> RecordingLevels {
+    RecordingLevels(
+      microphone: microphoneLevel.takeReading(), system: systemLevel.takeReading())
+  }
 
   init(directory: URL, onFailure: (@Sendable (String) -> Void)? = nil) {
     self.directory = directory
@@ -101,6 +108,10 @@ final class AudioSink: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, @
       }
       try file.write(from: buffer)
       writtenFrames[outputType, default: 0] += AVAudioFramePosition(buffer.frameLength)
+      switch outputType {
+      case .audio: systemLevel.consume(buffer)
+      case .microphone: microphoneLevel.consume(buffer)
+      }
     } catch {
       failure = error
       onFailure?(error.localizedDescription)
@@ -135,6 +146,13 @@ final class AudioCapture {
   private var microphoneObserver: NSObjectProtocol?
   private let queue = DispatchQueue(label: "app.minutes.audio", qos: .userInitiated)
   var onFailure: ((String) -> Void)?
+
+  func levels() async -> RecordingLevels {
+    guard let sink else { return RecordingLevels() }
+    return await withCheckedContinuation { continuation in
+      queue.async { continuation.resume(returning: sink.takeLevels()) }
+    }
+  }
 
   func start(applicationID: pid_t, directory: URL) async throws {
     guard sink == nil else { throw MinutesError.message("A recording is already in progress.") }

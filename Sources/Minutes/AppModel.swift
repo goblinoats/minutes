@@ -59,6 +59,7 @@ final class AppModel {
   private(set) var summarizingMeetingID: UUID?
   private var summaryTask: Task<Void, Never>?
   var recordingStarted: Date?
+  private(set) var recordingLevels = RecordingLevels()
   var exportDirectory: URL {
     didSet { preferences.set(exportDirectory.path, forKey: "exportDirectory") }
   }
@@ -114,6 +115,12 @@ final class AppModel {
       self.error = "Capture stopped: \(message). The recording will be retained."
       self.stop()
     }
+  }
+
+  func refreshRecordingLevels() async {
+    let levels = await capture.levels()
+    guard isRecording else { return }
+    recordingLevels = levels
   }
 
   func refreshSources() {
@@ -190,6 +197,7 @@ final class AppModel {
         try await capture.start(applicationID: sourceID, directory: directory)
         activeMeeting = meeting
         recordingStarted = Date()
+        recordingLevels = RecordingLevels()
         isRecording = true
         recordingSystemSpeakers = 0
         status = "Recording browser audio and your microphone"
@@ -203,6 +211,7 @@ final class AppModel {
   func stop() {
     guard isRecording, let meeting = activeMeeting, !isBusy else { return }
     isRecording = false
+    recordingLevels = RecordingLevels()
     isBusy = true
     status = "Finishing recording…"
     Task {
