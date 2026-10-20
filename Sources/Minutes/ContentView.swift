@@ -10,6 +10,7 @@ struct ContentView: View {
   @ViewState private var sidebarVisibility: NavigationSplitViewVisibility = .all
   @ViewState private var isNarrowWindow = false
   @ViewState private var search = ""
+  @ViewState private var searchScope = MeetingSearchScope.fullTranscript
   @ViewState private var renamingMeeting: Meeting?
   @ViewState private var meetingName = ""
   @ViewState private var reprocessingMeeting: Meeting?
@@ -20,8 +21,7 @@ struct ContentView: View {
 
   private var filteredMeetings: [Meeting] {
     model.meetings.filter {
-      search.isEmpty || $0.title.localizedCaseInsensitiveContains(search)
-        || $0.utterances.contains { $0.text.localizedCaseInsensitiveContains(search) }
+      searchScope.matches($0, query: search)
     }
   }
 
@@ -111,13 +111,28 @@ struct ContentView: View {
           } label: {
             Label("Meeting Actions", systemImage: "ellipsis.circle")
           }.help("Meeting actions").disabled(model.isBusy || model.isRecording)
-          if meeting.isTranscribed {
-            Button("Speakers", systemImage: "sidebar.right") {
-              if !showSpeakers && isNarrowWindow { sidebarVisibility = .detailOnly }
-              showSpeakers.toggle()
-            }
-            .help(showSpeakers ? "Hide speakers" : "Show speakers")
+        }
+      }
+      if #available(macOS 26.0, *) {
+        ToolbarItem(placement: .primaryAction) {
+          MeetingSearchField(text: $search, scope: $searchScope)
+            .frame(minWidth: 180, idealWidth: 240, maxWidth: 320)
+            .glassEffect(.regular, in: .capsule)
+        }.sharedBackgroundVisibility(.hidden)
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+      } else {
+        ToolbarItem(placement: .primaryAction) {
+          MeetingSearchField(text: $search, scope: $searchScope)
+            .frame(minWidth: 180, idealWidth: 240, maxWidth: 320)
+        }
+      }
+      ToolbarItem(placement: .primaryAction) {
+        if model.selectedMeeting?.isTranscribed == true {
+          Button("Speakers", systemImage: "sidebar.right") {
+            if !showSpeakers && isNarrowWindow { sidebarVisibility = .detailOnly }
+            showSpeakers.toggle()
           }
+          .help(showSpeakers ? "Hide speakers" : "Show speakers")
         }
       }
     }
@@ -130,7 +145,6 @@ struct ContentView: View {
       isNarrowWindow = narrow
       if narrow && showSpeakers { sidebarVisibility = .detailOnly }
     }
-    .searchable(text: $search, placement: .sidebar, prompt: "Search meetings")
     .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification))
     { _ in
       sidebarNow = Date()

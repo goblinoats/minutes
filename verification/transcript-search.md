@@ -53,3 +53,18 @@ The original gray state while transcription was active was expected disabled-con
 - Five focused tests passed, covering case sensitivity, word starts, accents, Unicode, occurrence ordering, and wrap boundaries. Debug packaging, signature, formatting, and diff checks passed.
 - Startup initially waited in `SecItemCopyMatching`; after the user handled Keychain access, live verification completed. Contains found 399 matches for `the`; Starts With reduced this to 383; disabling Ignore Case reduced it to 368. Disabling Wrap Around disabled Previous at result 1, including Shift-Command-G.
 - Restored Ignore Case, Wrap Around, and Contains after verification; rebuilt app remains open. Dark appearance is not visually verified.
+
+## Global toolbar search trial
+
+- Committed the accepted transcript find and speaker menu work as `15f377f` before this trial.
+- Changed the existing global `.searchable` placement from `.sidebar` to `.toolbar`, retaining native styling and the existing title/transcript filtering.
+- Debug build, strict signature verification, Swift formatting, and diff checks passed. Visually confirmed the search field at the trailing end of the toolbar and its removal from the sidebar.
+- Live typing `Tonk Desktop` filtered the meeting list; clearing restored it. Command-F from global search still focused the separate transcript find field. Left the rebuilt app open for review.
+
+## Global search scopes and toolbar ordering
+
+- Replaced automatic searchable placement with an explicit native NSSearchField toolbar item, labeled Search. Its magnifier menu selects Meeting Titles or Full Transcript (the default, including title matches).
+- Placed the speakers inspector toggle after search. On macOS 26 the field has its own native glass capsule, separated from the inspector button; older systems use the native field without glass.
+- Added and passed a focused scope test for blank queries, case-insensitive titles, transcript-only matches, and missing terms. Final debug packaging, strict signature, formatting, and diff checks passed.
+- Live verification found two title results for Tonk Desktop versus eight including transcripts. Clearing restored the list; Command-F still focused transcript find. Visually checked the magnifier menu and separate trailing inspector control. Left the rebuilt app open with empty search and Full Transcript selected.
+- Changes remain uncommitted for review. Compact-window and dark-appearance layouts were not visually checked.
