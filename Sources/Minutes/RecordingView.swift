@@ -1,8 +1,9 @@
 import MinutesCore
 import SwiftUI
 
-/// A small recording instrument: lacquered shell, recessed meters, physical transport key.
+/// Analog meters in a native, appearance-aware recording surface.
 struct RecordingView: View {
+  @Environment(\.colorScheme) private var colorScheme
   let levels: RecordingLevels
   var startedAt: Date? = nil
   var canStop = true
@@ -15,11 +16,9 @@ struct RecordingView: View {
       ScrollView {
         VStack(spacing: 18) {
           instrument(compact: compact, condensed: condensed)
+            .environment(\.colorScheme, colorScheme == .dark ? .light : .dark)
             .frame(maxWidth: 500)
-          if geometry.size.height >= 500 {
-            Text("Transcription starts when you stop.")
-              .font(.caption).foregroundStyle(.secondary)
-          }
+
         }
         .padding(compact ? 16 : 32)
         .frame(minHeight: geometry.size.height)
@@ -30,48 +29,19 @@ struct RecordingView: View {
 
   private func instrument(compact: Bool, condensed: Bool) -> some View {
     VStack(spacing: 0) {
-      VStack(alignment: .leading, spacing: 20) {
-        HStack(alignment: .firstTextBaseline) {
-          Text("minutes")
-            .font(.system(size: 23, weight: .semibold))
-            .tracking(-1)
-          Spacer()
-          if condensed {
-            HStack(spacing: 6) {
-              Circle().fill(RecorderFinish.orange).frame(width: 5, height: 5)
-              Text("RECORDING").font(.system(size: 8, weight: .medium)).tracking(1.2)
-            }
-          } else {
-            Text("MEETING RECORDER")
-              .font(.system(size: 8, weight: .medium)).tracking(1.6)
-              .foregroundStyle(RecorderFinish.secondaryInk)
-          }
-        }
-        if !condensed {
-          HStack(spacing: compact ? 20 : 30) {
-            MicrophoneGrille()
-              .frame(height: compact ? 76 : 84)
-              .accessibilityHidden(true)
-            VStack(spacing: 9) {
-              Text("REC").font(.system(size: 8, weight: .semibold)).tracking(1.5)
-              RecordingLamp().frame(width: 14, height: 34)
-              Text("LIVE").font(.system(size: 7, weight: .medium)).tracking(1)
-                .foregroundStyle(RecorderFinish.secondaryInk)
-            }
-            .accessibilityElement(children: .ignore)
+      if !condensed {
+        HStack(spacing: 24) {
+          MicrophoneGrille().frame(height: 42).accessibilityHidden(true)
+          Circle().fill(RecorderFinish.orange).frame(width: 7, height: 7)
             .accessibilityLabel("Recording in progress")
-            .padding(.trailing, 4)
-          }
         }
+        .padding(.horizontal, 28).padding(.top, 24)
       }
-      .padding(condensed ? 16 : (compact ? 20 : 24))
-
-      separator
 
       HStack(alignment: .top, spacing: compact ? 10 : 16) {
         RecordingMeter(
-          number: "01", title: "Microphone", level: levels.microphone, compact: compact)
-        RecordingMeter(number: "02", title: "System Audio", level: levels.system, compact: compact)
+          title: "Microphone", level: levels.microphone, compact: compact)
+        RecordingMeter(title: "System Audio", level: levels.system, compact: compact)
           .help("Audio from the selected browser and its tabs")
       }
       .padding(.horizontal, compact ? 16 : 24)
@@ -81,8 +51,6 @@ struct RecordingView: View {
 
       HStack(alignment: .center, spacing: 16) {
         VStack(alignment: .leading, spacing: 8) {
-          Text("ELAPSED").font(.system(size: 8, weight: .medium)).tracking(1.5)
-            .foregroundStyle(RecorderFinish.secondaryInk)
           TimelineView(.periodic(from: .now, by: 1)) { context in
             Text(
               MarkdownExporter.timestamp(context.date.timeIntervalSince(startedAt ?? context.date))
@@ -92,11 +60,7 @@ struct RecordingView: View {
             .contentTransition(.identity)
           }
           .accessibilityLabel("Recording duration")
-          HStack(spacing: 5) {
-            Image(systemName: "lock").font(.system(size: 8))
-            Text("On-device audio").font(.system(size: 9))
-          }
-          .foregroundStyle(RecorderFinish.secondaryInk)
+
         }
         Spacer(minLength: 0)
         VStack(spacing: 10) {
@@ -104,52 +68,40 @@ struct RecordingView: View {
             TransportKey(compact: compact)
               .contentShape(Circle())
           }
-          .buttonStyle(TransportButtonStyle())
+          .buttonStyle(TransportButtonStyle(compact: compact))
           .disabled(!canStop)
           .accessibilityLabel("Stop & Transcribe")
           .help("Finish recording and transcribe this meeting")
-          Text("Stop & Transcribe")
-            .font(.system(size: compact ? 9 : 10, weight: .medium))
-            .accessibilityHidden(true)
         }
       }
       .padding(condensed ? 16 : (compact ? 20 : 24))
     }
-    .foregroundStyle(RecorderFinish.ink)
+    .foregroundStyle(.primary)
     .background {
-      RoundedRectangle(cornerRadius: 22)
+      RoundedRectangle(cornerRadius: 20)
         .fill(
           LinearGradient(
-            colors: [RecorderFinish.ivory, RecorderFinish.lowerIvory], startPoint: .topLeading,
-            endPoint: .bottomTrailing)
+            colors: colorScheme == .dark
+              ? [RecorderFinish.ivory, RecorderFinish.lowerIvory]
+              : [
+                Color(red: 0.24, green: 0.25, blue: 0.24),
+                Color(red: 0.15, green: 0.16, blue: 0.15),
+              ],
+            startPoint: .topLeading, endPoint: .bottomTrailing)
         )
-        .overlay { SurfaceGrain().clipShape(RoundedRectangle(cornerRadius: 22)) }
         .overlay {
-          RoundedRectangle(cornerRadius: 21).strokeBorder(
-            LinearGradient(
-              colors: [.white.opacity(0.95), .white.opacity(0.16), .black.opacity(0.14)],
-              startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.5
-          )
-          .padding(1)
+          RoundedRectangle(cornerRadius: 20)
+            .strokeBorder(.white.opacity(colorScheme == .dark ? 0.5 : 0.12), lineWidth: 0.5)
         }
-        .overlay {
-          RoundedRectangle(cornerRadius: 22).strokeBorder(.black.opacity(0.16), lineWidth: 0.5)
-        }
-        .shadow(color: .black.opacity(0.12), radius: 2, y: 2)
-        .shadow(color: .black.opacity(0.13), radius: 16, y: 12)
     }
-    .overlay(alignment: .topLeading) { AssemblyScrew().padding(9) }
-    .overlay(alignment: .topTrailing) { AssemblyScrew().padding(9) }
-    .overlay(alignment: .bottomLeading) { AssemblyScrew().padding(9) }
-    .overlay(alignment: .bottomTrailing) { AssemblyScrew().padding(9) }
+    .overlay {
+      RoundedRectangle(cornerRadius: 20).strokeBorder(.primary.opacity(0.08), lineWidth: 0.5)
+    }
+    .shadow(color: .black.opacity(0.12), radius: 12, y: 5)
   }
 
   private var separator: some View {
-    Rectangle().fill(.black.opacity(0.15)).frame(height: 0.5)
-      .overlay(alignment: .bottom) {
-        Rectangle().fill(.white.opacity(0.7)).frame(height: 0.5).offset(y: 0.5)
-      }
-      .padding(.horizontal, 1)
+    Divider().padding(.horizontal, 24)
   }
 }
 
@@ -163,7 +115,6 @@ private enum RecorderFinish {
 }
 
 private struct RecordingMeter: View {
-  let number: String
   let title: String
   let level: RecordingLevel
   let compact: Bool
@@ -175,8 +126,6 @@ private struct RecordingMeter: View {
     let clipping = receiving && level.peak >= 0.99
     VStack(alignment: .leading, spacing: 10) {
       HStack(spacing: 6) {
-        Text(number).font(.system(size: 8, weight: .medium, design: .monospaced))
-          .foregroundStyle(RecorderFinish.secondaryInk)
         Text(title).font(.system(size: compact ? 10 : 12, weight: .medium))
       }
       VUDial(amount: level.amount(at: now), compact: compact)
@@ -186,17 +135,17 @@ private struct RecordingMeter: View {
         Circle().fill(
           clipping
             ? RecorderFinish.orange
-            : RecorderFinish.ink.opacity(receiving && level.decibels > -50 ? 0.8 : 0.25)
+            : Color.primary.opacity(receiving && level.decibels > -50 ? 0.8 : 0.25)
         )
         .frame(width: 4, height: 4)
         .accessibilityHidden(true)
         Text(level.status(at: now))
           .font(.system(size: compact ? 9 : 10))
-          .foregroundStyle(clipping ? RecorderFinish.alertInk : RecorderFinish.secondaryInk)
+          .foregroundStyle(clipping ? Color.orange : Color.secondary)
       }
       Text(receiving ? "\(Int(level.decibels)) dBFS" : "— dBFS")
         .font(.system(size: compact ? 10 : 11, weight: .medium, design: .monospaced))
-        .foregroundStyle(RecorderFinish.secondaryInk)
+        .foregroundStyle(.secondary)
         .padding(.top, -5)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
@@ -309,99 +258,95 @@ private struct MicrophoneGrille: View {
           let hole = CGRect(
             x: startX + CGFloat(column) * pitch - 1.6, y: startY + CGFloat(row) * pitch - 1.6,
             width: 3.2, height: 3.2)
+          // A lower bevel catches light; the upper lip shadows the cavity.
           context.fill(
-            Path(ellipseIn: hole.offsetBy(dx: 0, dy: 0.6).insetBy(dx: -0.4, dy: -0.4)),
-            with: .color(.white.opacity(0.85)))
+            Path(ellipseIn: hole.offsetBy(dx: 0, dy: 0.65).insetBy(dx: -0.55, dy: -0.55)),
+            with: .color(.white.opacity(0.55)))
           context.fill(
-            Path(ellipseIn: hole.insetBy(dx: -0.3, dy: -0.3)), with: .color(.black.opacity(0.23)))
-          context.fill(Path(ellipseIn: hole), with: .color(RecorderFinish.ink))
+            Path(ellipseIn: hole.insetBy(dx: -0.35, dy: -0.35)),
+            with: .linearGradient(
+              Gradient(colors: [.black.opacity(0.55), .black.opacity(0.16)]),
+              startPoint: CGPoint(x: hole.midX, y: hole.minY - 0.35),
+              endPoint: CGPoint(x: hole.midX, y: hole.maxY + 0.35)))
           context.fill(
-            Path(ellipseIn: hole.insetBy(dx: 0.4, dy: 0.4).offsetBy(dx: 0, dy: -0.3)),
-            with: .color(.black.opacity(0.6)))
+            Path(ellipseIn: hole),
+            with: .linearGradient(
+              Gradient(colors: [Color(white: 0.035), Color(white: 0.18)]),
+              startPoint: CGPoint(x: hole.midX, y: hole.minY),
+              endPoint: CGPoint(x: hole.midX, y: hole.maxY)))
+          context.fill(
+            Path(ellipseIn: hole.insetBy(dx: 0.6, dy: 0.6).offsetBy(dx: 0, dy: -0.35)),
+            with: .color(.black.opacity(0.55)))
         }
       }
     }
   }
 }
 
-private struct RecordingLamp: View {
-  var body: some View {
-    Capsule().fill(Color(white: 0.13))
-      .overlay { Capsule().strokeBorder(.black.opacity(0.5), lineWidth: 1) }
-      .overlay(alignment: .bottom) {
-        Circle().fill(RecorderFinish.orange)
-          .overlay { Circle().fill(.orange.opacity(0.4)).blur(radius: 3) }
-          .overlay { Circle().fill(.white.opacity(0.45)).frame(width: 3, height: 2).offset(y: -2) }
-          .frame(width: 8, height: 8).padding(.bottom, 5)
-      }
-      .overlay { Capsule().strokeBorder(.white.opacity(0.65), lineWidth: 0.5).offset(y: 0.5) }
-  }
-}
-
 private struct TransportKey: View {
   let compact: Bool
+  var pressed = false
+  var hovering = false
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
   var body: some View {
     ZStack {
+      // The bezel stays anchored while the face compresses into its well.
       Circle().fill(Color(white: 0.22))
       Circle().fill(
         LinearGradient(
           colors: [Color(white: 0.55), Color(white: 0.92)], startPoint: .top, endPoint: .bottom)
       ).padding(1)
       Circle().fill(RecorderFinish.ink).padding(3)
-      Circle().fill(
-        LinearGradient(
-          colors: [Color(red: 0.965, green: 0.96, blue: 0.93), RecorderFinish.lowerIvory],
-          startPoint: .topLeading, endPoint: .bottomTrailing)
-      )
+      ZStack {
+        Circle().fill(
+          LinearGradient(
+            colors: [Color(red: 0.965, green: 0.96, blue: 0.93), RecorderFinish.lowerIvory],
+            startPoint: .topLeading, endPoint: .bottomTrailing)
+        )
+        Circle().strokeBorder(.white.opacity(0.65), lineWidth: 0.7).padding(1)
+        RoundedRectangle(cornerRadius: 2).fill(RecorderFinish.orange)
+          .frame(width: compact ? 16 : 19, height: compact ? 16 : 19)
+      }
+      .overlay {
+        Circle()
+          .strokeBorder(
+            LinearGradient(
+              colors: [.black.opacity(pressed ? 0.28 : (hovering ? 0.14 : 0)), .clear],
+              startPoint: .top, endPoint: .bottom), lineWidth: pressed ? 2 : 1)
+      }
       .padding(5)
-      .shadow(color: .black.opacity(0.28), radius: 1, y: 1)
-      Circle().strokeBorder(.white.opacity(0.65), lineWidth: 0.7).padding(6)
-      RoundedRectangle(cornerRadius: 2).fill(RecorderFinish.orange)
-        .frame(width: compact ? 16 : 19, height: compact ? 16 : 19)
-        .shadow(color: .black.opacity(0.12), radius: 0.5, y: 0.5)
+      .shadow(
+        color: .black.opacity(pressed ? 0.1 : 0.28), radius: pressed ? 0.3 : 1, y: pressed ? 0 : 1
+      )
+      .brightness(pressed ? -0.07 : (hovering ? -0.025 : 0))
+      .scaleEffect(reduceMotion ? 1 : (pressed ? 0.96 : (hovering ? 0.985 : 1)))
+      .offset(y: reduceMotion ? 0 : (pressed ? 0.5 : 0))
+      .clipShape(Circle().inset(by: 3))
     }
     .frame(width: compact ? 58 : 70, height: compact ? 58 : 70)
+    .animation(reduceMotion ? nil : .easeOut(duration: 0.1), value: pressed)
+    .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hovering)
   }
 }
 
 private struct TransportButtonStyle: ButtonStyle {
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  @Environment(\.isEnabled) private var isEnabled
+  let compact: Bool
   func makeBody(configuration: Configuration) -> some View {
-    configuration.label
-      .scaleEffect(configuration.isPressed && !reduceMotion ? 0.96 : 1)
-      .brightness(configuration.isPressed ? -0.04 : 0)
+    TransportButtonBody(compact: compact, pressed: configuration.isPressed)
+  }
+}
+
+private struct TransportButtonBody: View {
+  let compact: Bool
+  let pressed: Bool
+  @State private var hovering = false
+  @Environment(\.isEnabled) private var isEnabled
+
+  var body: some View {
+    TransportKey(compact: compact, pressed: pressed && isEnabled, hovering: hovering && isEnabled)
+      .contentShape(Circle())
       .opacity(isEnabled ? 1 : 0.5)
-      .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
-  }
-}
-
-private struct AssemblyScrew: View {
-  var body: some View {
-    Circle().fill(.black.opacity(0.12))
-      .overlay { Circle().fill(RecorderFinish.ivory).padding(0.8) }
-      .overlay {
-        Capsule().fill(.black.opacity(0.25)).frame(width: 3, height: 0.6).rotationEffect(
-          .degrees(-35))
-      }
-      .frame(width: 5, height: 5)
-      .accessibilityHidden(true)
-  }
-}
-
-private struct SurfaceGrain: View {
-  var body: some View {
-    Canvas { context, size in
-      // Fixed pattern, not animated noise; subtle enough to read as a finish, not decoration.
-      for index in 0..<6000 {
-        let x = CGFloat((index * 73) % 997) / 997 * size.width
-        let y = CGFloat((index * 197) % 991) / 991 * size.height
-        context.fill(
-          Path(ellipseIn: CGRect(x: x, y: y, width: 0.6, height: 0.6)),
-          with: .color(index.isMultiple(of: 2) ? .white.opacity(0.13) : .black.opacity(0.035)))
-      }
-    }
-    .allowsHitTesting(false)
-    .accessibilityHidden(true)
+      .onHover { hovering = $0 }
   }
 }

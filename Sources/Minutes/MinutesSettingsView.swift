@@ -2,6 +2,7 @@ import ServiceManagement
 import SwiftUI
 
 struct MinutesSettingsView: View {
+  @AppStorage("recordingSounds") private var recordingSounds = true
   @Bindable var model: AppModel
   @Bindable var preferences: AppPreferences
   @ViewState private var newSpeakerName = ""
@@ -26,6 +27,9 @@ struct MinutesSettingsView: View {
               Text(error).font(.caption).foregroundStyle(.red)
             }
             Toggle("Start in menu bar", isOn: $preferences.menuBarOnly)
+          }
+          Section("Sound") {
+            Toggle("Recording and transcription sounds", isOn: $recordingSounds)
           }
           Section("Calendar") {
             Toggle(

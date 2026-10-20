@@ -52,13 +52,15 @@ struct ContentView: View {
                 }
               }.padding(.vertical, 5).tag(meeting.id)
                 .contextMenu {
-                  Button("Rename…") { beginRename(meeting) }
-                  Button("Change Recording Date…") { beginDate(meeting) }
-                  Button("Export Markdown…") { model.export(meeting) }
-                  Divider()
-                  Button("Move to Trash…", role: .destructive) { model.meetingToDelete = meeting }
+                  Group {
+                    Button("Rename…") { beginRename(meeting) }
+                    Button("Change Recording Date…") { beginDate(meeting) }
+                    Button("Export Markdown…") { model.export(meeting) }
+                    Divider()
+                    Button("Move to Trash…", role: .destructive) { model.meetingToDelete = meeting }
+                  }.disabled(model.isBusy || model.isRecording)
                 }
-                .disabled(model.isBusy || model.isRecording)
+                .disabled(model.isBusy)
             }
           }
         }
@@ -229,27 +231,18 @@ struct ContentView: View {
       if let invitation = model.calendarMonitor.invitations.first {
         calendarBanner(invitation)
       }
-      if model.isRecording {
-        RecordingView(
-          levels: model.recordingLevels, startedAt: model.recordingStarted,
-          canStop: !model.isBusy, onStop: { model.stop() }
-        )
-        .task {
-          while !Task.isCancelled && model.isRecording {
-            await model.refreshRecordingLevels()
-            do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
-          }
-        }
+      if let recordingID = model.recordingMeetingID, model.selection == recordingID {
+        LiveRecordingView(model: model)
       } else if let meeting = model.selectedMeeting, meeting.isTranscribed {
         TranscriptView(model: model, meeting: meeting, showSpeakers: $showSpeakers)
           .id(meeting.id)
-      } else if let meeting = model.selectedMeeting, !model.isRecording && !model.isBusy {
+      } else if let meeting = model.selectedMeeting, !model.isBusy {
         ContentUnavailableView {
           Label(meeting.title, systemImage: "waveform")
         } description: {
           Text("This session has not been transcribed.")
         } actions: {
-          Button("Transcribe") { model.retry(meeting) }
+          Button("Transcribe") { model.retry(meeting) }.disabled(model.isRecording)
         }
       } else {
         recorder
@@ -258,6 +251,14 @@ struct ContentView: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background {
       Color(nsColor: .windowBackgroundColor).ignoresSafeArea(.container, edges: .top)
+    }
+    .safeAreaInset(edge: .bottom, spacing: 0) {
+      if let recordingID = model.recordingMeetingID, model.selection != recordingID {
+        RecordingIndicator(startedAt: model.recordingStarted) {
+          model.selection = recordingID
+        }
+        .padding(.horizontal, 16).padding(.vertical, 12)
+      }
     }
     .overlay(alignment: .bottom) {
       if model.isBusy && !model.isRecording {

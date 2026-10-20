@@ -67,10 +67,13 @@ final class AppModel {
   private let modelIdleMinuteDuration: Duration
   private let preferences: UserDefaults
   private let capture = AudioCapture()
+  private let recordingSounds = RecordingSounds()
   private let transcription = TranscriptionService()
   private let store: MeetingStore
   private let recordingsDirectory: URL
   private var activeMeeting: Meeting?
+
+  var recordingMeetingID: UUID? { isRecording ? activeMeeting?.id : nil }
 
   var selectedMeeting: Meeting? { meetings.first { $0.id == selection } }
   var canStart: Bool { !isBusy && !isRecording && sourceID != 0 }
@@ -194,6 +197,9 @@ final class AppModel {
         let directory = recordingDirectory(meeting)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try retain(meeting)
+        if preferences.object(forKey: "recordingSounds") as? Bool ?? true {
+          try await recordingSounds.beforeCapture()
+        }
         try await capture.start(applicationID: sourceID, directory: directory)
         activeMeeting = meeting
         recordingStarted = Date()
@@ -225,6 +231,7 @@ final class AppModel {
         updated.duration = Date().timeIntervalSince(recordingStarted ?? meeting.date)
         try retain(updated)
         let tracks = try await capture.stop()
+        playRecordingSound(.stop)
         try await process(updated, tracks: tracks)
       } catch {
         self.error = error.localizedDescription
@@ -303,9 +310,15 @@ final class AppModel {
     try retain(updated)  // Save before export, so a folder error cannot lose the transcript.
     let exported = try writeExport(updated)
     status = "Exported \(exported.lastPathComponent)"
+    playRecordingSound(.finished)
     if chatGPT.automaticSummaries && !updated.utterances.isEmpty {
       startSummary(updated)
     }
+  }
+
+  private func playRecordingSound(_ cue: RecordingSounds.Cue) {
+    guard preferences.object(forKey: "recordingSounds") as? Bool ?? true else { return }
+    recordingSounds.play(cue)
   }
 
   func applyDefaultMicrophoneSpeaker(to meeting: inout Meeting) {
