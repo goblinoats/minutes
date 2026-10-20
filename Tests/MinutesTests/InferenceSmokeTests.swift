@@ -92,12 +92,20 @@ func pairedImportTranscribesBothVoices() async throws {
   }
   let imported = try RecordingImport.retain(
     remote: remote, microphone: microphone, in: directory.appendingPathComponent("retained"))
-  let utterances = try await TranscriptionService().transcribe(imported.tracks) { print($0) }
+  let corrections = TranscriptCorrections(
+    dictionary: ["Check-List"],
+    replacements: [.init(heard: "launch schedule", replacement: "release calendar")])
+  let utterances = try await TranscriptionService().transcribe(
+    imported.tracks, corrections: corrections
+  ) { print($0) }
   let localText = utterances.filter { $0.speaker == "You" }.map(\.text).joined(separator: " ")
   let remoteText = utterances.filter { $0.speaker.hasPrefix("Speaker ") }.map(\.text).joined(
     separator: " ")
   #expect(localText.lowercased().contains("documentation"))
-  #expect(remoteText.lowercased().contains("launch"))
+  #expect(localText.contains("Check-List"))
+  #expect(remoteText.contains("release calendar"))
+  #expect(!remoteText.lowercased().contains("launch schedule"))
+  #expect(utterances.compactMap(\.words).joined().contains { $0.text == "release calendar" })
   #expect(utterances.map(\.start) == utterances.map(\.start).sorted())
   let meeting = Meeting(title: "Paired import", duration: imported.duration, utterances: utterances)
   let exported = try MarkdownExporter.write(meeting, to: directory)

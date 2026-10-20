@@ -166,6 +166,8 @@ struct MinutesSettingsView: View {
         }.formStyle(.grouped).scrollContentBackground(.hidden).tabItem {
           Label("Transcription", systemImage: "waveform")
         }
+        VocabularySettingsView(model: model)
+          .tabItem { Label("Vocabulary", systemImage: "character.book.closed") }
         SummarySettingsView(connection: model.chatGPT)
           .tabItem { Label("Summaries", systemImage: "text.alignleft") }
       }

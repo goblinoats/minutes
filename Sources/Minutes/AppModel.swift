@@ -34,6 +34,14 @@ final class AppModel {
   var defaultMicrophoneSpeaker: String {
     didSet { preferences.set(defaultMicrophoneSpeaker, forKey: "defaultMicrophoneSpeaker") }
   }
+  var corrections: TranscriptCorrections {
+    didSet {
+      preferences.set(try? JSONEncoder().encode(corrections), forKey: "transcriptCorrections")
+    }
+  }
+  var vocabularyBoosting: Bool {
+    didSet { preferences.set(vocabularyBoosting, forKey: "vocabularyBoosting") }
+  }
   var defaultQuality: TranscriptionOptions.Quality {
     didSet { preferences.set(defaultQuality.rawValue, forKey: "transcriptionQuality") }
   }
@@ -83,6 +91,11 @@ final class AppModel {
         rawValue: preferences.string(forKey: "transcriptionQuality") ?? "") ?? .thorough
     savedSpeakers = preferences.stringArray(forKey: "savedSpeakers") ?? []
     defaultMicrophoneSpeaker = preferences.string(forKey: "defaultMicrophoneSpeaker") ?? ""
+    corrections =
+      preferences.data(forKey: "transcriptCorrections").flatMap {
+        try? JSONDecoder().decode(TranscriptCorrections.self, from: $0)
+      } ?? .init()
+    vocabularyBoosting = preferences.bool(forKey: "vocabularyBoosting")
     let support =
       supportDirectory
       ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[
@@ -272,7 +285,10 @@ final class AppModel {
     let options = meeting.transcriptionOptions ?? defaultTranscriptionOptions
     updated.transcriptionOptions = options
     try await loadModels()
-    updated.utterances = try await transcription.transcribe(tracks, options: options) {
+    updated.utterances = try await transcription.transcribe(
+      tracks, options: options, corrections: corrections,
+      boostTerms: vocabularyBoosting ? corrections.dictionary : []
+    ) {
       [weak self] text in
       await self?.setStatus(text)
     }
@@ -303,6 +319,28 @@ final class AppModel {
     else { return }
     savedSpeakers.append(trimmed)
     savedSpeakers.sort { $0.localizedStandardCompare($1) == .orderedAscending }
+  }
+
+  func addDictionaryTerm(_ term: String) {
+    let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty, !corrections.dictionary.contains(trimmed) else { return }
+    // A new spelling of the same letters replaces the old one, e.g. Openai → OpenAI.
+    let key = TranscriptCorrections.spellingKey(trimmed)
+    guard !key.isEmpty else { return }
+    corrections.dictionary.removeAll { TranscriptCorrections.spellingKey($0) == key }
+    corrections.dictionary.append(trimmed)
+    corrections.dictionary.sort { $0.localizedStandardCompare($1) == .orderedAscending }
+  }
+
+  func addReplacement(heard: String, replacement: String) {
+    let heard = heard.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    let replacement = replacement.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !heard.isEmpty, !replacement.isEmpty, heard != replacement else { return }
+    corrections.replacements.removeAll { $0.heard.caseInsensitiveCompare(heard) == .orderedSame }
+    corrections.replacements.append(.init(heard: heard, replacement: replacement))
+    corrections.replacements.sort {
+      $0.heard.localizedStandardCompare($1.heard) == .orderedAscending
+    }
   }
 
   func newMeeting() {

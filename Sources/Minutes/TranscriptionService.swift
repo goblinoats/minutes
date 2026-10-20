@@ -9,12 +9,15 @@ actor TranscriptionService {
 
   private var speechModels: AsrModels?
   private var speakerModels: OfflineDiarizerModels?
+  // Loaded only for a transcription that boosts vocabulary, released with the rest.
+  private var vocabularyModels: CtcModels?
 
   var isLoaded: Bool { speechModels != nil && speakerModels != nil }
 
   func unload() {
     speechModels = nil
     speakerModels = nil
+    vocabularyModels = nil
   }
 
   func prepare(progress: @Sendable (String) async -> Void) async throws {
@@ -36,6 +39,7 @@ actor TranscriptionService {
 
   func transcribe(
     _ tracks: AudioTracks, options: TranscriptionOptions = .init(),
+    corrections: TranscriptCorrections = .init(), boostTerms: [String] = [],
     progress: @Sendable (String) async -> Void
   ) async throws
     -> [Utterance]
@@ -47,12 +51,14 @@ actor TranscriptionService {
     }
     let asr = AsrManager(config: .default)
     try await asr.loadModels(models)
+    let booster = try await vocabularyBooster(boostTerms, progress: progress)
     var utterances: [Utterance] = []
     if let remote = tracks.remote {
       await progress("Transcribing the meeting…")
       var decoderState = TdtDecoderState.make(decoderLayers: await asr.decoderLayerCount)
       let result = try await asr.transcribe(remote, decoderState: &decoderState)
-      let remoteWords = try words(result)
+      let remoteWords = corrections.apply(
+        to: try await words(result, audio: remote, booster: booster))
       if !remoteWords.isEmpty {
         await progress("Identifying voices in the meeting…")
         let diarizer = OfflineDiarizerManager(config: diarizationConfig)
@@ -77,7 +83,9 @@ actor TranscriptionService {
       var decoderState = TdtDecoderState.make(decoderLayers: await asr.decoderLayerCount)
       let result = try await asr.transcribe(microphone, decoderState: &decoderState)
       utterances += SpeakerAlignment.align(
-        words: try words(result), spans: [], offset: tracks.microphoneOffset, fixedSpeaker: "You")
+        words: corrections.apply(
+          to: try await words(result, audio: microphone, booster: booster)), spans: [],
+        offset: tracks.microphoneOffset, fixedSpeaker: "You")
     }
     return utterances.sorted { $0.start < $1.start }
   }
@@ -98,12 +106,36 @@ actor TranscriptionService {
     return config
   }
 
-  private func words(_ result: ASRResult) throws -> [TimedWord] {
+  private func vocabularyBooster(
+    _ terms: [String], progress: @Sendable (String) async -> Void
+  ) async throws -> VocabularyBooster? {
+    guard !terms.isEmpty else { return nil }
+    let directory = VocabularyBooster.modelDirectory(in: modelDirectory)
+    do {
+      if vocabularyModels == nil {
+        await progress("Loading vocabulary model…")
+        vocabularyModels = try await CtcModels.downloadAndLoad(to: directory)
+      }
+      return try await VocabularyBooster(
+        terms: terms, models: vocabularyModels!, directory: directory)
+    } catch {
+      vocabularyModels = nil
+      throw MinutesError.message(
+        "Vocabulary boosting could not load its model: \(error.localizedDescription) "
+          + "Try again, or turn off vocabulary boosting.")
+    }
+  }
+
+  /// Boosting rewrites the raw words before corrections, so explicit Replacements still win.
+  private func words(_ result: ASRResult, audio: URL, booster: VocabularyBooster?) async throws
+    -> [TimedWord]
+  {
     guard !result.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
     guard let tokens = result.tokenTimings, !tokens.isEmpty else {
       throw MinutesError.message(
         "Transcription returned text without timestamps; speaker alignment could not be completed.")
     }
-    return try WordTiming.words(tokens)
+    let words = try WordTiming.words(tokens)
+    return try await booster?.boost(words, tokens: tokens, audio: audio) ?? words
   }
 }
