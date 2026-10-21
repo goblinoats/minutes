@@ -23,11 +23,25 @@ struct RecordingIndicator: View {
       .contentShape(Capsule())
     }
     .buttonStyle(.plain)
-    .background(.regularMaterial, in: Capsule())
-    .overlay {
-      Capsule().strokeBorder(.primary.opacity(0.1), lineWidth: 0.5).allowsHitTesting(false)
-    }
+    .modifier(RecordingPillSurface())
     .help("Return to the current recording")
     .accessibilityLabel("Recording in progress. Show recorder")
+  }
+}
+
+private struct RecordingPillSurface: ViewModifier {
+  @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+  func body(content: Content) -> some View {
+    if reduceTransparency {
+      content.background(Color(nsColor: .windowBackgroundColor), in: Capsule())
+        .overlay {
+          Capsule().strokeBorder(.primary.opacity(0.1), lineWidth: 0.5).allowsHitTesting(false)
+        }
+    } else if #available(macOS 26, *) {
+      content.glassEffect(.regular.interactive(), in: Capsule())
+    } else {
+      content.background(.regularMaterial, in: Capsule())
+    }
   }
 }
