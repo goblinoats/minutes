@@ -1,13 +1,36 @@
 import MinutesCore
 import SwiftUI
 
-/// Analog meters in a native, appearance-aware recording surface.
-struct RecordingView: View {
+/// Analog meters in a native, appearance-aware recording surface. Before capture
+/// begins it doubles as the new-meeting surface: the key starts recording and
+/// each meter carries its source.
+struct RecordingView<SystemSource: View, Accessory: View>: View {
   @Environment(\.colorScheme) private var colorScheme
   let levels: RecordingLevels
-  var startedAt: Date? = nil
-  var canStop = true
-  var onStop: () -> Void = {}
+  var isRecording: Bool
+  var startedAt: Date?
+  var canOperate: Bool
+  var onTransport: () -> Void
+  var microphonePreview: Binding<Bool>?
+  let systemSource: SystemSource
+  let accessory: Accessory
+
+  init(
+    levels: RecordingLevels, isRecording: Bool = true, startedAt: Date? = nil,
+    canOperate: Bool = true, onTransport: @escaping () -> Void = {},
+    microphonePreview: Binding<Bool>? = nil,
+    @ViewBuilder systemSource: () -> SystemSource,
+    @ViewBuilder accessory: () -> Accessory = { EmptyView() }
+  ) {
+    self.levels = levels
+    self.isRecording = isRecording
+    self.startedAt = startedAt
+    self.canOperate = canOperate
+    self.onTransport = onTransport
+    self.microphonePreview = microphonePreview
+    self.systemSource = systemSource()
+    self.accessory = accessory()
+  }
 
   var body: some View {
     GeometryReader { geometry in
@@ -16,9 +39,8 @@ struct RecordingView: View {
       ScrollView {
         VStack(spacing: 18) {
           instrument(compact: compact, condensed: condensed)
-            .environment(\.colorScheme, colorScheme == .dark ? .light : .dark)
             .frame(maxWidth: 500)
-
+          accessory
         }
         .padding(compact ? 16 : 32)
         .frame(minHeight: geometry.size.height)
@@ -32,17 +54,27 @@ struct RecordingView: View {
       if !condensed {
         HStack(spacing: 24) {
           MicrophoneGrille().frame(height: 42).accessibilityHidden(true)
-          Circle().fill(RecorderFinish.orange).frame(width: 7, height: 7)
+          Circle().fill(RecorderFinish.orange.opacity(isRecording ? 1 : 0.22))
+            .frame(width: 7, height: 7)
             .accessibilityLabel("Recording in progress")
+            .accessibilityHidden(!isRecording)
         }
         .padding(.horizontal, 28).padding(.top, 24)
       }
 
       HStack(alignment: .top, spacing: compact ? 10 : 16) {
         RecordingMeter(
-          title: "Microphone", level: levels.microphone, compact: compact)
-        RecordingMeter(title: "System Audio", level: levels.system, compact: compact)
-          .help("Audio from the selected browser and its tabs")
+          title: "Microphone", level: levels.microphone, isRecording: isRecording,
+          compact: compact, preview: isRecording ? nil : microphonePreview
+        ) {
+          Text("System default")
+        }
+        RecordingMeter(
+          title: "System Audio", level: levels.system, isRecording: isRecording, compact: compact
+        ) {
+          systemSource
+        }
+        .help("Audio from the selected browser and its tabs")
       }
       .padding(.horizontal, compact ? 16 : 24)
       .padding(.vertical, 20)
@@ -53,25 +85,32 @@ struct RecordingView: View {
         VStack(alignment: .leading, spacing: 8) {
           TimelineView(.periodic(from: .now, by: 1)) { context in
             Text(
-              MarkdownExporter.timestamp(context.date.timeIntervalSince(startedAt ?? context.date))
+              MarkdownExporter.timestamp(
+                isRecording ? context.date.timeIntervalSince(startedAt ?? context.date) : 0)
             )
             .font(.system(size: compact ? 27 : 34, weight: .light, design: .monospaced))
             .tracking(-1.5)
             .contentTransition(.identity)
+            .opacity(isRecording ? 1 : 0.35)
           }
           .accessibilityLabel("Recording duration")
+          .accessibilityHidden(!isRecording)
 
         }
         Spacer(minLength: 0)
         VStack(spacing: 10) {
-          Button(action: onStop) {
-            TransportKey(compact: compact)
+          Button(action: onTransport) {
+            TransportKey(compact: compact, recording: isRecording)
               .contentShape(Circle())
           }
-          .buttonStyle(TransportButtonStyle(compact: compact))
-          .disabled(!canStop)
-          .accessibilityLabel("Stop & Transcribe")
-          .help("Finish recording and transcribe this meeting")
+          .buttonStyle(TransportButtonStyle(compact: compact, recording: isRecording))
+          .disabled(!canOperate)
+          .keyboardShortcut(isRecording ? nil : .defaultAction)
+          .accessibilityLabel(isRecording ? "Stop & Transcribe" : "Start Recording")
+          .help(
+            isRecording
+              ? "Finish recording and transcribe this meeting"
+              : "Record the selected browser and your microphone")
         }
       }
       .padding(condensed ? 16 : (compact ? 20 : 24))
@@ -82,16 +121,16 @@ struct RecordingView: View {
         .fill(
           LinearGradient(
             colors: colorScheme == .dark
-              ? [RecorderFinish.ivory, RecorderFinish.lowerIvory]
-              : [
+              ? [
                 Color(red: 0.24, green: 0.25, blue: 0.24),
                 Color(red: 0.15, green: 0.16, blue: 0.15),
-              ],
+              ]
+              : [RecorderFinish.ivory, RecorderFinish.lowerIvory],
             startPoint: .topLeading, endPoint: .bottomTrailing)
         )
         .overlay {
           RoundedRectangle(cornerRadius: 20)
-            .strokeBorder(.white.opacity(colorScheme == .dark ? 0.5 : 0.12), lineWidth: 0.5)
+            .strokeBorder(.white.opacity(colorScheme == .dark ? 0.12 : 0.5), lineWidth: 0.5)
         }
     }
     .overlay {
@@ -105,7 +144,18 @@ struct RecordingView: View {
   }
 }
 
-private enum RecorderFinish {
+extension RecordingView where SystemSource == EmptyView, Accessory == EmptyView {
+  init(
+    levels: RecordingLevels, startedAt: Date? = nil, canOperate: Bool = true,
+    onTransport: @escaping () -> Void = {}
+  ) {
+    self.init(
+      levels: levels, startedAt: startedAt, canOperate: canOperate, onTransport: onTransport,
+      systemSource: { EmptyView() })
+  }
+}
+
+enum RecorderFinish {
   static let ivory = Color(red: 0.94, green: 0.935, blue: 0.905)
   static let lowerIvory = Color(red: 0.85, green: 0.85, blue: 0.815)
   static let ink = Color(red: 0.17, green: 0.18, blue: 0.17)
@@ -114,10 +164,15 @@ private enum RecorderFinish {
   static let alertInk = Color(red: 0.65, green: 0.18, blue: 0.06)
 }
 
-private struct RecordingMeter: View {
+private struct RecordingMeter<Source: View>: View {
   let title: String
   let level: RecordingLevel
+  let isRecording: Bool
   let compact: Bool
+  var preview: Binding<Bool>? = nil
+  @ViewBuilder let source: Source
+  private static var statusDot: CGFloat { 4 }
+  private static var statusGap: CGFloat { 4 }
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
@@ -127,33 +182,94 @@ private struct RecordingMeter: View {
     VStack(alignment: .leading, spacing: 10) {
       HStack(spacing: 6) {
         Text(title).font(.system(size: compact ? 10 : 12, weight: .medium))
+        if let preview {
+          Spacer(minLength: 0)
+          Toggle(isOn: preview) {
+            Label("Preview Level", systemImage: "mic.and.signal.meter")
+          }
+          .toggleStyle(InstrumentSwitchStyle())
+          .help(
+            preview.wrappedValue
+              ? "Stop previewing the microphone level"
+              : "Preview the microphone level before recording")
+        }
       }
       VUDial(amount: level.amount(at: now), compact: compact)
         .frame(height: compact ? 88 : 106)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: level.amount(at: now))
-      HStack(alignment: .firstTextBaseline, spacing: 3) {
-        Circle().fill(
-          clipping
-            ? RecorderFinish.orange
-            : Color.primary.opacity(receiving && level.decibels > -50 ? 0.8 : 0.25)
-        )
-        .frame(width: 4, height: 4)
-        .accessibilityHidden(true)
-        Text(level.status(at: now))
+      if isRecording {
+        // Centred on the capitals; the reading below starts where the words do.
+        HStack(alignment: .center, spacing: Self.statusGap) {
+          Circle().fill(
+            clipping
+              ? RecorderFinish.orange
+              : Color.primary.opacity(receiving && level.decibels > -50 ? 0.8 : 0.25)
+          )
+          .frame(width: Self.statusDot, height: Self.statusDot)
+          .accessibilityHidden(true)
+          Text(level.status(at: now))
+            .font(.system(size: compact ? 9 : 10))
+            .foregroundStyle(clipping ? Color.orange : Color.secondary)
+        }
+      } else {
+        source
           .font(.system(size: compact ? 9 : 10))
-          .foregroundStyle(clipping ? Color.orange : Color.secondary)
+          .foregroundStyle(.secondary)
+          .lineLimit(1)
       }
       Text(receiving ? "\(Int(level.decibels)) dBFS" : "— dBFS")
         .font(.system(size: compact ? 10 : 11, weight: .medium, design: .monospaced))
         .foregroundStyle(.secondary)
         .padding(.top, -5)
+        .padding(.leading, isRecording ? Self.statusDot + Self.statusGap : 0)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
-    .accessibilityElement(children: .ignore)
+    .accessibilityElement(children: isRecording ? .ignore : .contain)
     .accessibilityLabel(title)
     .accessibilityValue(
-      "\(level.status(at: now)), \(receiving ? String(-Int(level.decibels)) + " decibels below full scale" : "no recent audio")"
+      isRecording || receiving
+        ? "\(level.status(at: now)), \(receiving ? String(-Int(level.decibels)) + " decibels below full scale" : "no recent audio")"
+        : ""
     )
+  }
+}
+
+/// A small slide switch in the instrument's materials rather than a system control.
+private struct InstrumentSwitchStyle: ToggleStyle {
+  @Environment(\.colorScheme) private var colorScheme
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  func makeBody(configuration: Configuration) -> some View {
+    Button {
+      configuration.isOn.toggle()
+    } label: {
+      HStack(spacing: 5) {
+        configuration.label
+          .labelStyle(.iconOnly)
+          .symbolVariant(configuration.isOn ? .fill : .none)
+          .font(.system(size: 13))
+          .foregroundStyle(configuration.isOn ? .primary : .secondary)
+        track(configuration)
+      }
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityRepresentation {
+      Toggle(isOn: configuration.$isOn) { configuration.label }
+    }
+  }
+
+  private func track(_ configuration: Configuration) -> some View {
+    Capsule()
+      .fill(Color.primary.opacity(configuration.isOn ? 0.72 : 0.14))
+      .overlay(alignment: configuration.isOn ? .trailing : .leading) {
+        Circle()
+          .fill(colorScheme == .dark ? Color(white: 0.2) : RecorderFinish.ivory)
+          .shadow(color: .black.opacity(0.3), radius: 0.6, y: 0.5)
+          .padding(1.5)
+      }
+      .frame(width: 24, height: 13)
+      .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isOn)
   }
 }
 
@@ -285,6 +401,7 @@ private struct MicrophoneGrille: View {
 
 private struct TransportKey: View {
   let compact: Bool
+  var recording = true
   var pressed = false
   var hovering = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -305,7 +422,9 @@ private struct TransportKey: View {
             startPoint: .topLeading, endPoint: .bottomTrailing)
         )
         Circle().strokeBorder(.white.opacity(0.65), lineWidth: 0.7).padding(1)
-        RoundedRectangle(cornerRadius: 2).fill(RecorderFinish.orange)
+        // Record is a dot; once capture runs the same key becomes stop.
+        RoundedRectangle(cornerRadius: recording ? 2 : (compact ? 8 : 9.5))
+          .fill(RecorderFinish.orange)
           .frame(width: compact ? 16 : 19, height: compact ? 16 : 19)
       }
       .overlay {
@@ -332,21 +451,26 @@ private struct TransportKey: View {
 
 private struct TransportButtonStyle: ButtonStyle {
   let compact: Bool
+  let recording: Bool
   func makeBody(configuration: Configuration) -> some View {
-    TransportButtonBody(compact: compact, pressed: configuration.isPressed)
+    TransportButtonBody(compact: compact, recording: recording, pressed: configuration.isPressed)
   }
 }
 
 private struct TransportButtonBody: View {
   let compact: Bool
+  let recording: Bool
   let pressed: Bool
   @State private var hovering = false
   @Environment(\.isEnabled) private var isEnabled
 
   var body: some View {
-    TransportKey(compact: compact, pressed: pressed && isEnabled, hovering: hovering && isEnabled)
-      .contentShape(Circle())
-      .opacity(isEnabled ? 1 : 0.5)
-      .onHover { hovering = $0 }
+    TransportKey(
+      compact: compact, recording: recording, pressed: pressed && isEnabled,
+      hovering: hovering && isEnabled
+    )
+    .contentShape(Circle())
+    .opacity(isEnabled ? 1 : 0.5)
+    .onHover { hovering = $0 }
   }
 }

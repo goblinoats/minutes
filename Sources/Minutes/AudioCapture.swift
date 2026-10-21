@@ -13,6 +13,26 @@ enum MinutesError: LocalizedError {
   var errorDescription: String? { if case .message(let text) = self { text } else { nil } }
 }
 
+extension AVAudioPCMBuffer {
+  /// Copies captured audio into PCM, or nil when the sample buffer carries none.
+  static func copying(_ sampleBuffer: CMSampleBuffer) throws -> AVAudioPCMBuffer? {
+    guard sampleBuffer.isValid, CMSampleBufferDataIsReady(sampleBuffer),
+      let description = sampleBuffer.formatDescription,
+      let format = AVAudioFormat(cmAudioFormatDescription: description) as AVAudioFormat?,
+      let buffer = AVAudioPCMBuffer(
+        pcmFormat: format, frameCapacity: AVAudioFrameCount(sampleBuffer.numSamples))
+    else { return nil }
+    buffer.frameLength = buffer.frameCapacity
+    let status = CMSampleBufferCopyPCMDataIntoAudioBufferList(
+      sampleBuffer, at: 0,
+      frameCount: Int32(buffer.frameLength), into: buffer.mutableAudioBufferList)
+    guard status == noErr else {
+      throw MinutesError.message("Audio buffer conversion failed (\(status)).")
+    }
+    return buffer
+  }
+}
+
 // All mutable state in this sink is confined to the stream's serial callback queue.
 enum CaptureTrack { case audio, microphone }
 
@@ -50,20 +70,14 @@ final class AudioSink: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, @
   func consume(
     _ sampleBuffer: CMSampleBuffer, of outputType: CaptureTrack, at time: Double? = nil
   ) {
-    guard failure == nil, outputType == .audio || outputType == .microphone,
-      sampleBuffer.isValid, CMSampleBufferDataIsReady(sampleBuffer),
-      let description = sampleBuffer.formatDescription,
-      let format = AVAudioFormat(cmAudioFormatDescription: description) as AVAudioFormat?,
-      let buffer = AVAudioPCMBuffer(
-        pcmFormat: format, frameCapacity: AVAudioFrameCount(sampleBuffer.numSamples))
-    else { return }
-    buffer.frameLength = buffer.frameCapacity
-    let status = CMSampleBufferCopyPCMDataIntoAudioBufferList(
-      sampleBuffer, at: 0,
-      frameCount: Int32(buffer.frameLength), into: buffer.mutableAudioBufferList)
-    guard status == noErr else {
-      failure = MinutesError.message("Audio buffer conversion failed (\(status)).")
-      onFailure?(failure!.localizedDescription)
+    guard failure == nil, outputType == .audio || outputType == .microphone else { return }
+    let buffer: AVAudioPCMBuffer
+    do {
+      guard let converted = try AVAudioPCMBuffer.copying(sampleBuffer) else { return }
+      buffer = converted
+    } catch {
+      failure = error
+      onFailure?(error.localizedDescription)
       return
     }
     consume(buffer, at: time ?? sampleBuffer.presentationTimeStamp.seconds, of: outputType)

@@ -20,8 +20,8 @@ open dist/Minutes.app
 
 ## Use
 
-1. Select your browser and click **Start Recording**, or import existing audio.
-2. Click **Stop & Transcribe** to create a transcript with speaker labels.
+1. Pick your browser under **System Audio** and press the record key, or import existing audio from the toolbar.
+2. Press the same key again to stop and transcribe with speaker labels.
 3. Click any word to listen, name speakers, and export Markdown.
 
 Models download automatically on first use. Recordings and transcription stay on your Mac.

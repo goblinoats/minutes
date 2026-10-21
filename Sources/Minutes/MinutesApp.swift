@@ -66,7 +66,7 @@ struct MinutesApp: App {
     }
     model.calendarMonitor.onOpen = { meeting in
       openWindow(id: "main")
-      model.calendarPrompt = meeting
+      model.prepareRecording(for: meeting)
       NSApp.activate(ignoringOtherApps: true)
     }
     model.calendarMonitor.startMonitoring()
@@ -113,7 +113,7 @@ private struct MinutesMenu: View {
     } else {
       ForEach(model.calendarMonitor.invitations) { meeting in
         Button("Record \(meeting.title)…") {
-          model.calendarPrompt = meeting
+          model.prepareRecording(for: meeting)
           showWindow()
         }
         .disabled(model.isBusy || model.isRecording)

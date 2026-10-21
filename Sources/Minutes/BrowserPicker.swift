@@ -34,38 +34,57 @@ struct BrowserSource: Identifiable {
   }
 }
 
-struct BrowserPicker: View {
+/// The recorder's system-audio source: the selected browser as a quiet menu.
+struct BrowserSourceMenu: View {
   @Bindable var model: AppModel
 
   var body: some View {
     Group {
-      if model.applications.isEmpty {
-        LabeledContent("Browser", value: "Open a browser to record")
-          .foregroundStyle(.secondary)
-      } else {
-        Picker("Browser", selection: $model.sourceID) {
-          ForEach(model.applications) { app in
-            Text(app.applicationName).tag(app.processID)
+      if let selected = model.applications.first(where: { $0.processID == model.sourceID }) {
+        Menu {
+          Picker("Browser", selection: $model.sourceID) {
+            ForEach(model.applications) { app in
+              Text(app.applicationName).tag(app.processID)
+            }
+          }.pickerStyle(.inline)
+        } label: {
+          // A plain style lets the label inherit the meter caption's type.
+          HStack(spacing: 3) {
+            Text(selected.applicationName)
+            Image(systemName: "chevron.up.chevron.down").imageScale(.small)
           }
+          .contentShape(Rectangle())
         }
+        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+        .help("Browser to record")
+      } else {
+        Text("No browser open")
       }
     }
-    .onAppear { model.refreshSources() }
-    .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification))
-    { _ in
-      model.refreshSources()
-    }
-    .onReceive(
-      NSWorkspace.shared.notificationCenter.publisher(
-        for: NSWorkspace.didLaunchApplicationNotification)
-    ) { _ in
-      model.refreshSources()
-    }
-    .onReceive(
-      NSWorkspace.shared.notificationCenter.publisher(
-        for: NSWorkspace.didTerminateApplicationNotification)
-    ) { _ in
-      model.refreshSources()
-    }
+    .refreshingBrowserSources(model)
+  }
+}
+
+extension View {
+  fileprivate func refreshingBrowserSources(_ model: AppModel) -> some View {
+    self
+      .onAppear { model.refreshSources() }
+      .onReceive(
+        NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+      ) { _ in
+        model.refreshSources()
+      }
+      .onReceive(
+        NSWorkspace.shared.notificationCenter.publisher(
+          for: NSWorkspace.didLaunchApplicationNotification)
+      ) { _ in
+        model.refreshSources()
+      }
+      .onReceive(
+        NSWorkspace.shared.notificationCenter.publisher(
+          for: NSWorkspace.didTerminateApplicationNotification)
+      ) { _ in
+        model.refreshSources()
+      }
   }
 }

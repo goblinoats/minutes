@@ -9,6 +9,8 @@ struct RecordingPreview {
     let configurations: [(String, CGFloat, CGFloat, ColorScheme)] = [
       ("light", 620, 650, .light), ("dark", 620, 650, .dark),
       ("compact", 320, 570, .dark), ("short", 520, 400, .light),
+      ("ready-light", 620, 650, .light), ("ready-dark", 620, 650, .dark),
+      ("preview-light", 620, 650, .light),
     ]
     var windows: [NSWindow] = []
     for (index, config) in configurations.enumerated() {
@@ -17,9 +19,17 @@ struct RecordingPreview {
         let levels = RecordingLevels(
           microphone: .init(decibels: -18, peak: 0.4, receivedAt: .now),
           system: .init(decibels: -32, peak: 0.2, receivedAt: .now))
+        let ready = name.hasPrefix("ready") || name.hasPrefix("preview")
+        let previewing = name.hasPrefix("preview")
         let host = NSHostingView(
           rootView:
-            RecordingView(levels: levels, startedAt: Date.now.addingTimeInterval(-83))
+            RecordingView(
+              levels: ready && !previewing ? RecordingLevels() : levels, isRecording: !ready,
+              startedAt: ready ? nil : Date.now.addingTimeInterval(-83),
+              microphonePreview: .constant(previewing)
+            ) {
+              Text("Helium")
+            }
             .frame(width: width, height: height)
             .background(Color(nsColor: .windowBackgroundColor))
             .environment(\.colorScheme, scheme))
@@ -39,7 +49,7 @@ struct RecordingPreview {
         }
       }
     }
-    DispatchQueue.main.asyncAfter(deadline: .now() + 3) { app.terminate(nil) }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 5) { app.terminate(nil) }
     app.run()
   }
 }

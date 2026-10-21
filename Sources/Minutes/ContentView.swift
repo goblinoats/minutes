@@ -39,16 +39,29 @@ struct ContentView: View {
         ForEach(MeetingDay.group(filteredMeetings)) { day in
           Section(dayTitle(day.date)) {
             ForEach(day.meetings) { meeting in
+              let live = meeting.id == model.recordingMeetingID
               HStack(alignment: .top, spacing: 10) {
                 Image(systemName: meeting.isTranscribed ? "text.bubble" : "waveform")
-                  .foregroundStyle(.secondary).padding(.top, 2)
+                  .foregroundStyle(
+                    live ? AnyShapeStyle(RecorderFinish.orange) : AnyShapeStyle(.secondary)
+                  )
+                  .padding(.top, 2)
+                  .accessibilityLabel(live ? "Recording" : "")
                 VStack(alignment: .leading, spacing: 5) {
                   Text(meeting.title).fontWeight(.medium).lineLimit(2).help(meeting.title)
                   HStack {
                     Text(meeting.date, format: .dateTime.hour().minute())
                     Text("·")
-                    Text(MarkdownExporter.timestamp(meeting.duration))
-                  }.font(.caption).foregroundStyle(.secondary)
+                    if live {
+                      TimelineView(.periodic(from: .now, by: 1)) { context in
+                        Text(
+                          MarkdownExporter.timestamp(
+                            context.date.timeIntervalSince(model.recordingStarted ?? context.date)))
+                      }
+                    } else {
+                      Text(MarkdownExporter.timestamp(meeting.duration))
+                    }
+                  }.font(.caption).foregroundStyle(.secondary).monospacedDigit()
                 }
               }.padding(.vertical, 5).tag(meeting.id)
                 .contextMenu {
@@ -86,13 +99,35 @@ struct ContentView: View {
         .navigationSplitViewColumnWidth(min: 320, ideal: 550)
     }
     .toolbarBackgroundVisibility(Visibility.hidden, for: ToolbarPlacement.windowToolbar)
-    .navigationTitle(model.selectedMeeting?.title ?? "New Meeting")
+    // Before and during capture an editable name field stands in for the title. The
+    // title stays, empty, because removing it also drops the trailing toolbar layout.
+    .navigationTitle(showsNameField ? "" : model.selectedMeeting?.title ?? "")
     .toolbar {
       ToolbarItem(placement: .navigation) {
         Button("New Meeting", systemImage: "square.and.pencil") { model.newMeeting() }
           .help("New meeting").disabled(model.isBusy || model.isRecording)
       }
+      if showsNameField {
+        if #available(macOS 26.0, *) {
+          ToolbarItem(placement: .navigation) { MeetingNameField(model: model) }
+            .sharedBackgroundVisibility(.hidden)
+        } else {
+          ToolbarItem(placement: .navigation) { MeetingNameField(model: model) }
+        }
+      }
       ToolbarItemGroup(placement: .primaryAction) {
+        if model.selectedMeeting == nil {
+          Menu {
+            Button("Single Recording…", systemImage: "waveform") { model.importRecording() }
+            Button("System & Microphone…", systemImage: "waveform.badge.mic") {
+              model.importRecording(paired: true)
+            }
+          } label: {
+            Label("Import Audio", systemImage: "waveform.badge.plus")
+          }
+          .menuIndicator(.hidden)
+          .help("Import audio").disabled(model.isBusy || model.isRecording)
+        }
         if let meeting = model.selectedMeeting {
           if meeting.isTranscribed {
             Button("Review Speakers", systemImage: "person.crop.circle.badge.questionmark") {
@@ -174,9 +209,6 @@ struct ContentView: View {
           }.keyboardShortcut(.defaultAction)
         }
       }.padding(24).frame(width: 420)
-    }
-    .sheet(item: $model.calendarPrompt) { meeting in
-      CalendarRecordingPrompt(model: model, meeting: meeting)
     }
     .alert(
       "Move meeting to Trash?",
@@ -284,49 +316,61 @@ struct ContentView: View {
     .padding(.horizontal, 24).padding(.bottom, 16)
   }
 
+  private var showsNameField: Bool {
+    model.selectedMeeting == nil || model.selection == model.recordingMeetingID
+  }
+
+  /// The new-meeting surface is the recorder itself: the meters carry their
+  /// sources and the transport key starts capture.
   private var recorder: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      Form {
+    ReadyRecorderView(model: model) {
+      BrowserSourceMenu(model: model).disabled(model.isBusy || model.isRecording)
+    } accessory: {
+      VStack(spacing: 24) {
+        HStack(spacing: 8) {
+          Menu {
+            ParticipantCountPicker(count: $model.recordingSystemSpeakers).pickerStyle(.inline)
+          } label: {
+            Label(
+              model.recordingSystemSpeakers == 0 ? "Automatic" : "\(model.recordingSystemSpeakers)",
+              systemImage: "person.2")
+          }
+          .menuStyle(.button).buttonStyle(.bordered).buttonBorderShape(.capsule).fixedSize()
+          .help("Other participants, excluding you")
+          .accessibilityLabel("Other participants")
+          .accessibilityValue(
+            model.recordingSystemSpeakers == 0 ? "Automatic" : "\(model.recordingSystemSpeakers)")
+          if let meeting = model.preparedCalendarMeeting {
+            Button("Google Meet", systemImage: "video") { NSWorkspace.shared.open(meeting.url) }
+              .buttonStyle(.bordered).buttonBorderShape(.capsule)
+              .help("Join \(meeting.title)")
+          }
+        }
         if !model.calendarMonitor.upcoming.isEmpty {
-          Section("Upcoming Meetings") {
-            ForEach(model.calendarMonitor.upcoming.prefix(3)) { meeting in
-              HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                  Text(meeting.title).font(.headline)
-                  Text(meeting.start, format: .dateTime.weekday(.abbreviated).hour().minute())
-                    .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button("Record…") { model.calendarPrompt = meeting }
+          GroupBox("Upcoming Meetings") {
+            VStack(spacing: 0) {
+              ForEach(
+                Array(model.calendarMonitor.upcoming.prefix(3).enumerated()), id: \.element.id
+              ) {
+                index, meeting in
+                if index > 0 { Divider() }
+                HStack {
+                  VStack(alignment: .leading, spacing: 4) {
+                    Text(meeting.title).font(.headline)
+                    Text(meeting.start, format: .dateTime.weekday(.abbreviated).hour().minute())
+                      .foregroundStyle(.secondary)
+                  }
+                  Spacer()
+                  Button("Record…") { model.prepareRecording(for: meeting) }
+                }.padding(8)
               }
             }
-          }
+          }.frame(maxWidth: 500)
         }
-        Section("New Recording") {
-          TextField("Meeting name", text: $model.title, prompt: Text("Untitled meeting"))
-          BrowserPicker(model: model)
-          LabeledContent("Microphone", value: "System default")
-          ParticipantCountPicker(count: $model.recordingSystemSpeakers)
-          HStack {
-            Spacer()
-            Button("Start Recording", systemImage: "record.circle") { model.start() }
-              .buttonStyle(.bordered).controlSize(.large)
-              .keyboardShortcut(.defaultAction).disabled(!model.canStart)
-          }
-        }
-        Section("Import Audio") {
-          HStack {
-            Button("Single Recording…", systemImage: "waveform") { model.importRecording() }
-            Button("System & Microphone…", systemImage: "waveform.badge.mic") {
-              model.importRecording(paired: true)
-            }
-          }
-        }
-      }.formStyle(.grouped).scrollContentBackground(.hidden)
-        .contentMargins(.bottom, (model.isRecording || model.isBusy) ? 88 : 0, for: .scrollContent)
-    }.frame(maxWidth: 760).frame(maxWidth: .infinity)
-      .background(Color(nsColor: .windowBackgroundColor))
+      }
       .disabled(model.isBusy || model.isRecording)
+    }
+    .background(Color(nsColor: .windowBackgroundColor))
   }
 
   private func dayTitle(_ date: Date) -> String {
@@ -354,11 +398,50 @@ struct ContentView: View {
       }
       Spacer()
       Button("Not Now") { model.calendarMonitor.dismiss(meeting) }
-      Button("Record…") { model.calendarPrompt = meeting }
+      Button("Record…") { model.prepareRecording(for: meeting) }
         .buttonStyle(.bordered).disabled(model.isBusy || model.isRecording)
     }.padding(16).controlSurface().padding(12)
   }
 
+}
+
+/// Names a new meeting before capture, or the meeting being recorded during it.
+private struct MeetingNameField: View {
+  @Bindable var model: AppModel
+  @ViewState private var draft = ""
+  @FocusState private var focused: Bool
+
+  private var recording: Meeting? {
+    model.recordingMeetingID.flatMap { id in model.meetings.first { $0.id == id } }
+  }
+
+  var body: some View {
+    TextField("Meeting name", text: $draft, prompt: Text(Meeting.untitled))
+      .textFieldStyle(.plain)
+      .font(.title3.weight(.semibold))
+      .frame(minWidth: 160, idealWidth: 320, maxWidth: 420)
+      .focused($focused)
+      .help("Meeting name")
+      .disabled(model.isBusy)
+      .onAppear(perform: load)
+      .onChange(of: model.recordingMeetingID) { load() }
+      .onChange(of: model.title) { if recording == nil, draft != model.title { load() } }
+      // A new meeting takes the name as typed; a recording is renamed once editing ends.
+      .onChange(of: draft) { if recording == nil { model.title = draft } }
+      .onSubmit(commit)
+      .onChange(of: focused) { if !focused { commit() } }
+  }
+
+  private func load() { draft = recording?.title ?? model.title }
+
+  private func commit() {
+    guard let meeting = recording else { return }
+    if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      draft = meeting.title
+    } else {
+      model.renameMeeting(meeting, to: draft)
+    }
+  }
 }
 
 private struct TranscriptView: View {

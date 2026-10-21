@@ -26,7 +26,10 @@ final class CalendarMonitor: NSObject, UNUserNotificationCenterDelegate {
   private let preferences: UserDefaults
   private var task: Task<Void, Never>?
   private var seen: [String: Double]
-  private var center: UNUserNotificationCenter { .current() }
+  /// Notifications need an app bundle; unbundled processes such as tests have none.
+  private var center: UNUserNotificationCenter? {
+    Bundle.main.bundleIdentifier == nil ? nil : .current()
+  }
 
   var menuStatus: String {
     if requestingAccess { return "Connecting Calendar…" }
@@ -49,16 +52,18 @@ final class CalendarMonitor: NSObject, UNUserNotificationCenterDelegate {
   }
 
   func startMonitoring() {
-    center.delegate = self
-    Task {
-      let settings = await center.notificationSettings()
-      notificationsAllowed = settings.authorizationStatus == .authorized
+    if let center {
+      center.delegate = self
+      Task {
+        let settings = await center.notificationSettings()
+        notificationsAllowed = settings.authorizationStatus == .authorized
+      }
+      let review = UNNotificationAction(
+        identifier: "review", title: "Review Recording…", options: .foreground)
+      center.setNotificationCategories([
+        UNNotificationCategory(identifier: "meeting", actions: [review], intentIdentifiers: [])
+      ])
     }
-    let review = UNNotificationAction(
-      identifier: "review", title: "Review Recording…", options: .foreground)
-    center.setNotificationCategories([
-      UNNotificationCategory(identifier: "meeting", actions: [review], intentIdentifiers: [])
-    ])
     guard task == nil else { return }
     task = Task { [weak self] in
       while !Task.isCancelled {
@@ -75,7 +80,7 @@ final class CalendarMonitor: NSObject, UNUserNotificationCenterDelegate {
       preferences.set(false, forKey: "calendarDetectionEnabled")
       upcoming = []
       invitations = []
-      center.removeAllDeliveredNotifications()
+      center?.removeAllDeliveredNotifications()
       status = "Calendar reminders are off."
       return
     }
@@ -91,7 +96,8 @@ final class CalendarMonitor: NSObject, UNUserNotificationCenterDelegate {
         }
         enabled = true
         preferences.set(true, forKey: "calendarDetectionEnabled")
-        let notifications = try await center.requestAuthorization(options: [.alert, .sound])
+        let notifications =
+          try await center?.requestAuthorization(options: [.alert, .sound]) ?? false
         notificationsAllowed = notifications
         preferences.set(notifications, forKey: "calendarNotificationsAllowed")
         startMonitoring()
@@ -106,7 +112,7 @@ final class CalendarMonitor: NSObject, UNUserNotificationCenterDelegate {
     if selected { selectedCalendarIDs.insert(id) } else { selectedCalendarIDs.remove(id) }
     preferences.set(selectedCalendarIDs.sorted(), forKey: "selectedCalendarIDs")
     if enabled {
-      center.removeAllDeliveredNotifications()
+      center?.removeAllDeliveredNotifications()
       refresh()
     }
   }
@@ -172,10 +178,11 @@ final class CalendarMonitor: NSObject, UNUserNotificationCenterDelegate {
 
   func dismiss(_ meeting: CalendarMeeting) {
     invitations.removeAll { $0.id == meeting.id }
-    center.removeDeliveredNotifications(withIdentifiers: [meeting.id])
+    center?.removeDeliveredNotifications(withIdentifiers: [meeting.id])
   }
 
   private func notify(_ meeting: CalendarMeeting) {
+    guard let center else { return }
     let content = UNMutableNotificationContent()
     content.title = "Meeting starting"
     content.body = "\(meeting.title) — would you like to record?"

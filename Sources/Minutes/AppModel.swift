@@ -4,6 +4,10 @@ import MinutesCore
 import Observation
 import UniformTypeIdentifiers
 
+extension Meeting {
+  static let untitled = "Untitled meeting"
+}
+
 @MainActor @Observable
 final class AppModel {
   var meetings: [Meeting] = []
@@ -14,7 +18,8 @@ final class AppModel {
   var recordingSystemSpeakers = 0
   var meetingToDelete: Meeting?
   let calendarMonitor: CalendarMonitor
-  var calendarPrompt: CalendarMeeting?
+  /// The calendar event a new meeting was prefilled from, so its call can be joined.
+  private(set) var preparedCalendarMeeting: CalendarMeeting?
   var applications: [BrowserSource] = []
   var sourceID: Int32 = 0
   var isRecording = false {
@@ -60,6 +65,11 @@ final class AppModel {
   private var summaryTask: Task<Void, Never>?
   var recordingStarted: Date?
   private(set) var recordingLevels = RecordingLevels()
+  /// Remembered so a deliberate opt-in carries over to the next new meeting.
+  var previewsMicrophone: Bool {
+    didSet { preferences.set(previewsMicrophone, forKey: "previewsMicrophone") }
+  }
+  private(set) var previewLevel = RecordingLevel()
   var exportDirectory: URL {
     didSet { preferences.set(exportDirectory.path, forKey: "exportDirectory") }
   }
@@ -67,6 +77,7 @@ final class AppModel {
   private let modelIdleMinuteDuration: Duration
   private let preferences: UserDefaults
   private let capture = AudioCapture()
+  private let microphonePreview = MicrophonePreview()
   private let recordingSounds = RecordingSounds()
   private let transcription = TranscriptionService()
   private let store: MeetingStore
@@ -92,6 +103,7 @@ final class AppModel {
         rawValue: preferences.string(forKey: "transcriptionQuality") ?? "") ?? .thorough
     savedSpeakers = preferences.stringArray(forKey: "savedSpeakers") ?? []
     defaultMicrophoneSpeaker = preferences.string(forKey: "defaultMicrophoneSpeaker") ?? ""
+    previewsMicrophone = preferences.bool(forKey: "previewsMicrophone")
     corrections =
       preferences.data(forKey: "transcriptCorrections").flatMap {
         try? JSONDecoder().decode(TranscriptCorrections.self, from: $0)
@@ -124,6 +136,27 @@ final class AppModel {
     let levels = await capture.levels()
     guard isRecording else { return }
     recordingLevels = levels
+  }
+
+  func startMicrophonePreview() async {
+    guard previewsMicrophone, !isBusy, !isRecording else { return }
+    do {
+      try await microphonePreview.start()
+    } catch {
+      previewsMicrophone = false
+      self.error = error.localizedDescription
+    }
+  }
+
+  func stopMicrophonePreview() {
+    microphonePreview.stop()
+    previewLevel = RecordingLevel()
+  }
+
+  func refreshPreviewLevel() async {
+    let level = await microphonePreview.level()
+    guard microphonePreview.isRunning else { return }
+    previewLevel = level
   }
 
   func refreshSources() {
@@ -180,6 +213,7 @@ final class AppModel {
 
   func start(systemSpeakers: Int? = nil) {
     guard canStart else { return }
+    stopMicrophonePreview()
     let count = systemSpeakers ?? recordingSystemSpeakers
     let options = TranscriptionOptions(
       quality: defaultQuality, expectedSystemSpeakers: count == 0 ? nil : count)
@@ -192,7 +226,7 @@ final class AppModel {
         status = "Starting audio capture…"
         var meeting = Meeting(
           title: title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? "Untitled meeting" : title)
+            ? Meeting.untitled : title)
         meeting.transcriptionOptions = options
         let directory = recordingDirectory(meeting)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -206,6 +240,7 @@ final class AppModel {
         recordingLevels = RecordingLevels()
         isRecording = true
         recordingSystemSpeakers = 0
+        preparedCalendarMeeting = nil
         status = "Recording browser audio and your microphone"
       } catch {
         self.error = error.localizedDescription
@@ -365,6 +400,16 @@ final class AppModel {
     selection = nil
     title = ""
     recordingSystemSpeakers = 0
+    preparedCalendarMeeting = nil
+  }
+
+  /// Calendar reminders lead to the ordinary recorder, named after the event.
+  func prepareRecording(for meeting: CalendarMeeting) {
+    guard !isBusy && !isRecording else { return }
+    newMeeting()
+    title = meeting.title
+    preparedCalendarMeeting = meeting
+    calendarMonitor.dismiss(meeting)
   }
 
   func togglePlayback() {
@@ -405,7 +450,8 @@ final class AppModel {
   }
 
   func renameMeeting(_ meeting: Meeting, to name: String) {
-    guard !isBusy && !isRecording,
+    // The meeting being recorded may be named mid-call; capture keeps its copy current.
+    guard !isBusy, !isRecording || meeting.id == activeMeeting?.id,
       let current = meetings.first(where: { $0.id == meeting.id })
     else { return }
     let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -414,6 +460,7 @@ final class AppModel {
     updated.title = trimmed
     do {
       try retain(updated)
+      if activeMeeting?.id == updated.id { activeMeeting?.title = trimmed }
       if updated.isTranscribed { try writeExport(updated) }
     } catch { self.error = error.localizedDescription }
   }
