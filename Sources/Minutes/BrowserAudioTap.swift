@@ -92,15 +92,16 @@ final class BrowserAudioTap {
     }
   }
 
+  typealias IOCallback =
+    @Sendable (
+      UnsafePointer<AudioTimeStamp>, UnsafePointer<AudioBufferList>,
+      UnsafePointer<AudioTimeStamp>, UnsafeMutablePointer<AudioBufferList>,
+      UnsafePointer<AudioTimeStamp>
+    ) -> Void
+
   // Core Audio invokes this on the capture queue. Constructing the block outside
   // MainActor prevents it from inheriting start()'s main-thread isolation.
-  nonisolated static func makeIOCallback(
-    format: AVAudioFormat, sink: AudioSink
-  ) -> @Sendable (
-    UnsafePointer<AudioTimeStamp>, UnsafePointer<AudioBufferList>,
-    UnsafePointer<AudioTimeStamp>, UnsafeMutablePointer<AudioBufferList>,
-    UnsafePointer<AudioTimeStamp>
-  ) -> Void {
+  nonisolated static func makeIOCallback(format: AVAudioFormat, sink: AudioSink) -> IOCallback {
     { _, input, timestamp, _, _ in
       guard timestamp.pointee.mFlags.contains(.hostTimeValid),
         let buffer = AVAudioPCMBuffer(pcmFormat: format, bufferListNoCopy: input)

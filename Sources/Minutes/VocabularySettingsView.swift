@@ -56,7 +56,9 @@ struct VocabularySettingsView: View {
     HStack(spacing: 8) {
       TextField("New Word or Replacement", text: $draft, prompt: Text("New word or replacement"))
         .labelsHidden().textFieldStyle(.plain).focused($focus, equals: .draft)
-        .onSubmit { !replacing ? addWord() : (focus = .replacement) }
+        .onSubmit {
+          if replacing { focus = .replacement } else { addWord() }
+        }
       if replacing {
         Image(systemName: "arrow.right").foregroundStyle(.secondary).accessibilityHidden(true)
         TextField(
