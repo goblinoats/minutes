@@ -20,7 +20,7 @@ final class AppModel {
   let calendarMonitor: CalendarMonitor
   /// The calendar event a new meeting was prefilled from, so its call can be joined.
   private(set) var preparedCalendarMeeting: CalendarMeeting?
-  var applications: [BrowserSource] = []
+  var applications: [AudioSource] = []
   var sourceID: Int32 = 0
   var isRecording = false {
     didSet { scheduleModelUnload() }
@@ -161,7 +161,7 @@ final class AppModel {
 
   func refreshSources() {
     guard !isBusy && !isRecording else { return }
-    applications = BrowserSource.running()
+    applications = AudioSource.running()
     if !applications.contains(where: { $0.processID == sourceID }) {
       sourceID = applications.first?.processID ?? 0
     }
@@ -241,7 +241,7 @@ final class AppModel {
         isRecording = true
         recordingSystemSpeakers = 0
         preparedCalendarMeeting = nil
-        status = "Recording browser audio and your microphone"
+        status = "Recording app audio and your microphone"
       } catch {
         self.error = error.localizedDescription
         status = "Recording could not start"

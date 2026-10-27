@@ -324,7 +324,7 @@ struct ContentView: View {
   /// sources and the transport key starts capture.
   private var recorder: some View {
     ReadyRecorderView(model: model) {
-      BrowserSourceMenu(model: model).disabled(model.isBusy || model.isRecording)
+      AudioSourceMenu(model: model).disabled(model.isBusy || model.isRecording)
     } accessory: {
       VStack(spacing: 24) {
         HStack(spacing: 8) {

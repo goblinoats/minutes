@@ -4,8 +4,8 @@ import Testing
 
 @testable import Minutes
 
-@Test func browserAudioScopeIncludesOnlySelectedBrowserAndEmbeddedHelpers() {
-  let scope = BrowserAudioScope(
+@Test func appAudioScopeIncludesOnlySelectedAppAndEmbeddedHelpers() {
+  let scope = AppAudioScope(
     processID: 42, bundleID: "net.imput.helium", bundlePath: "/Applications/Helium.app")
   #expect(scope.includes(pid: 42, bundle: nil, executablePath: nil))
   #expect(scope.includes(pid: 80, bundle: "net.imput.helium", executablePath: nil))
@@ -26,13 +26,33 @@ import Testing
   #expect(!scope.includes(pid: 84, bundle: nil, executablePath: nil))
 }
 
-@Test @MainActor func browserAudioCallbackRunsOnCaptureQueue() async throws {
+@Test func faceTimeScopeIncludesConferenceDaemon() {
+  let scope = AppAudioScope(
+    processID: 42, bundleID: "com.apple.FaceTime",
+    bundlePath: "/System/Applications/FaceTime.app")
+  #expect(
+    scope.includes(
+      pid: 90, bundle: "com.apple.avconferenced", executablePath: "/usr/libexec/avconferenced"))
+  #expect(
+    !scope.includes(
+      pid: 91, bundle: "com.apple.TelephonyUtilities",
+      executablePath:
+        "/System/Library/PrivateFrameworks/TelephonyUtilities.framework/callservicesd"))
+  let discord = AppAudioScope(
+    processID: 43, bundleID: "com.hnc.Discord", bundlePath: "/Applications/Discord.app")
+  #expect(discord.companionBundleIDs.isEmpty)
+  #expect(
+    !discord.includes(
+      pid: 90, bundle: "com.apple.avconferenced", executablePath: "/usr/libexec/avconferenced"))
+}
+
+@Test @MainActor func appAudioCallbackRunsOnCaptureQueue() async throws {
   let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
   try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
   defer { try? FileManager.default.removeItem(at: directory) }
   let sink = AudioSink(directory: directory)
   let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2))
-  let callback = BrowserAudioTap.makeIOCallback(format: format, sink: sink)
+  let callback = AppAudioTap.makeIOCallback(format: format, sink: sink)
   let queue = DispatchQueue(label: "minutes.test.capture")
   try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
     queue.async {

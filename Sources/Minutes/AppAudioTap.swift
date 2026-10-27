@@ -3,27 +3,34 @@ import AppKit
 import CoreAudio
 import Darwin
 
-// The tap includes only this browser and its embedded helpers. An empty process
-// list stays silent; it must never become an exclusive (global) tap.
-struct BrowserAudioScope {
+// The tap includes only this app, its embedded helpers, and any system process
+// that plays its call audio. An empty process list stays silent; it must never
+// become an exclusive (global) tap.
+struct AppAudioScope {
   let processID: pid_t
   let bundleID: String
   let bundlePath: String
 
+  /// FaceTime renders call audio in avconferenced rather than in FaceTime itself.
+  static let companions = ["com.apple.FaceTime": ["com.apple.avconferenced"]]
+
+  var companionBundleIDs: [String] { Self.companions[bundleID] ?? [] }
+
   func includes(pid: pid_t, bundle: String?, executablePath: String?) -> Bool {
     pid == processID || bundle == bundleID
+      || bundle.map(companionBundleIDs.contains) == true
       || executablePath?.hasPrefix(bundlePath + "/") == true
   }
 }
 
 @MainActor
-final class BrowserAudioTap {
+final class AppAudioTap {
   private var tapID: AudioObjectID = kAudioObjectUnknown
   private var deviceID: AudioObjectID = kAudioObjectUnknown
   private var ioProc: AudioDeviceIOProcID?
   private var listener: AudioObjectPropertyListenerBlock?
   private var description: CATapDescription?
-  private var scope: BrowserAudioScope?
+  private var scope: AppAudioScope?
   private var processIDs: [AudioObjectID] = []
   private let queue: DispatchQueue
   private let sink: AudioSink
@@ -36,28 +43,32 @@ final class BrowserAudioTap {
   func start(applicationID: pid_t) throws {
     guard let app = NSRunningApplication(processIdentifier: applicationID), !app.isTerminated,
       let bundleID = app.bundleIdentifier, let url = app.bundleURL
-    else { throw MinutesError.message("The selected browser is no longer available.") }
-    scope = BrowserAudioScope(processID: applicationID, bundleID: bundleID, bundlePath: url.path)
+    else { throw MinutesError.message("The selected app is no longer available.") }
+    let scope = AppAudioScope(
+      processID: applicationID, bundleID: bundleID, bundlePath: url.path)
+    self.scope = scope
     do {
       processIDs = try matchingProcesses()
       let description = CATapDescription(stereoMixdownOfProcesses: processIDs)
-      description.name = "Minutes browser audio"
+      description.name = "Minutes app audio"
       description.isPrivate = true
       description.isExclusive = false
       description.muteBehavior = .unmuted
-      if #available(macOS 26.0, *) { description.bundleIDs = [bundleID] }
+      if #available(macOS 26.0, *) {
+        description.bundleIDs = [bundleID] + scope.companionBundleIDs
+      }
       self.description = description
-      try check(AudioHardwareCreateProcessTap(description, &tapID), "Start browser audio capture")
+      try check(AudioHardwareCreateProcessTap(description, &tapID), "Start app audio capture")
       var format = AudioStreamBasicDescription()
       var address = property(kAudioTapPropertyFormat)
       var size = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
       try check(
         AudioObjectGetPropertyData(tapID, &address, 0, nil, &size, &format), "Read audio format")
       guard let audioFormat = AVAudioFormat(streamDescription: &format) else {
-        throw MinutesError.message("The browser returned an unsupported audio format.")
+        throw MinutesError.message("The selected app returned an unsupported audio format.")
       }
       let aggregate: [String: Any] = [
-        kAudioAggregateDeviceNameKey: "Minutes browser audio",
+        kAudioAggregateDeviceNameKey: "Minutes app audio",
         kAudioAggregateDeviceUIDKey: UUID().uuidString,
         kAudioAggregateDeviceIsPrivateKey: true,
         kAudioAggregateDeviceTapAutoStartKey: true,
@@ -70,12 +81,12 @@ final class BrowserAudioTap {
       ]
       try check(
         AudioHardwareCreateAggregateDevice(aggregate as CFDictionary, &deviceID),
-        "Open browser audio")
+        "Open app audio")
       try check(
         AudioDeviceCreateIOProcIDWithBlock(
           &ioProc, deviceID, queue, Self.makeIOCallback(format: audioFormat, sink: sink)),
-        "Prepare browser audio")
-      try check(AudioDeviceStart(deviceID, ioProc), "Record browser audio")
+        "Prepare app audio")
+      try check(AudioDeviceStart(deviceID, ioProc), "Record app audio")
       let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
         Task { @MainActor [weak self] in self?.refreshProcesses() }
       }
@@ -83,7 +94,7 @@ final class BrowserAudioTap {
       try check(
         AudioObjectAddPropertyListenerBlock(
           AudioObjectID(kAudioObjectSystemObject), &processes, .main, listener),
-        "Watch browser audio processes")
+        "Watch app audio processes")
       self.listener = listener
       refreshProcesses()
     } catch {
@@ -143,7 +154,7 @@ final class BrowserAudioTap {
       try check(
         AudioObjectSetPropertyData(
           tapID, &address, 0, nil, UInt32(MemoryLayout<UnsafeMutableRawPointer>.size), &value),
-        "Update browser audio processes")
+        "Update app audio processes")
       processIDs = current
     } catch {
       sink.onFailure?(error.localizedDescription)
@@ -155,11 +166,11 @@ final class BrowserAudioTap {
     var address = property(kAudioHardwarePropertyProcessObjectList)
     var size: UInt32 = 0
     let system = AudioObjectID(kAudioObjectSystemObject)
-    try check(AudioObjectGetPropertyDataSize(system, &address, 0, nil, &size), "Find browser audio")
+    try check(AudioObjectGetPropertyDataSize(system, &address, 0, nil, &size), "Find app audio")
     var objects = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
     guard !objects.isEmpty else { return [] }
     try check(
-      AudioObjectGetPropertyData(system, &address, 0, nil, &size, &objects), "Find browser audio")
+      AudioObjectGetPropertyData(system, &address, 0, nil, &size, &objects), "Find app audio")
     return objects.filter { object in
       var pid: pid_t = 0
       var pidSize = UInt32(MemoryLayout<pid_t>.size)

@@ -20,7 +20,7 @@ open dist/Minutes.app
 
 ## Use
 
-1. Pick your browser under **System Audio** and press the record key, or import existing audio from the toolbar.
+1. Pick an app under **System Audio** and press the record key, or import existing audio from the toolbar.
 2. Press the same key again to stop and transcribe with speaker labels.
 3. Click any word to listen, name speakers, and export Markdown.
 

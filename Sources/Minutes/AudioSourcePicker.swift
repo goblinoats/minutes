@@ -1,10 +1,29 @@
 import AppKit
 import SwiftUI
 
-struct BrowserSource: Identifiable {
+struct AudioSource: Identifiable {
+  enum Kind { case callApp, browser }
+
   let processID: pid_t
   let applicationName: String
+  let kind: Kind
   var id: pid_t { processID }
+
+  static func kind(of bundleID: String) -> Kind? {
+    if isCallApp(bundleID) { return .callApp }
+    if isBrowser(bundleID) { return .browser }
+    return nil
+  }
+
+  static func isCallApp(_ bundleID: String) -> Bool {
+    [
+      "com.apple.FaceTime", "net.whatsapp.WhatsApp", "desktop.WhatsApp",
+      "com.hnc.Discord", "com.hnc.DiscordPTB", "com.hnc.DiscordCanary",
+      "us.zoom.xos", "com.microsoft.teams2", "com.microsoft.teams",
+      "com.tinyspeck.slackmacgap", "Cisco-Systems.Spark",
+      "org.whispersystems.signal-desktop", "ru.keepcoder.Telegram", "org.telegram.desktop",
+    ].contains(bundleID)
+  }
 
   static func isBrowser(_ bundleID: String) -> Bool {
     [
@@ -22,30 +41,34 @@ struct BrowserSource: Identifiable {
     ].contains(bundleID)
   }
 
-  @MainActor static func running() -> [BrowserSource] {
+  // Browsers sort first so the default selection is unchanged when a call app
+  // such as Slack or Discord merely sits open in the background.
+  @MainActor static func running() -> [AudioSource] {
     NSWorkspace.shared.runningApplications.compactMap { app in
       guard app.activationPolicy == .regular, !app.isTerminated,
-        let bundleID = app.bundleIdentifier, isBrowser(bundleID), let name = app.localizedName
+        let bundleID = app.bundleIdentifier, let kind = kind(of: bundleID),
+        let name = app.localizedName
       else { return nil }
-      return BrowserSource(processID: app.processIdentifier, applicationName: name)
+      return AudioSource(processID: app.processIdentifier, applicationName: name, kind: kind)
     }.sorted {
-      $0.applicationName.localizedCaseInsensitiveCompare($1.applicationName) == .orderedAscending
+      if $0.kind != $1.kind { return $0.kind == .browser }
+      return $0.applicationName.localizedCaseInsensitiveCompare($1.applicationName)
+        == .orderedAscending
     }
   }
 }
 
-/// The recorder's system-audio source: the selected browser as a quiet menu.
-struct BrowserSourceMenu: View {
+/// The recorder's system-audio source: the selected app as a quiet menu.
+struct AudioSourceMenu: View {
   @Bindable var model: AppModel
 
   var body: some View {
     Group {
       if let selected = model.applications.first(where: { $0.processID == model.sourceID }) {
         Menu {
-          Picker("Browser", selection: $model.sourceID) {
-            ForEach(model.applications) { app in
-              Text(app.applicationName).tag(app.processID)
-            }
+          Picker("Source", selection: $model.sourceID) {
+            section("Browsers", kind: .browser)
+            section("Call Apps", kind: .callApp)
           }.pickerStyle(.inline)
         } label: {
           // A plain style lets the label inherit the meter caption's type.
@@ -56,17 +79,26 @@ struct BrowserSourceMenu: View {
           .contentShape(Rectangle())
         }
         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-        .help("Browser to record")
+        .help("App to record")
       } else {
-        Text("No browser open")
+        Text("No app open")
       }
     }
-    .refreshingBrowserSources(model)
+    .refreshingAudioSources(model)
+  }
+
+  @ViewBuilder private func section(_ title: String, kind: AudioSource.Kind) -> some View {
+    let apps = model.applications.filter { $0.kind == kind }
+    if !apps.isEmpty {
+      Section(title) {
+        ForEach(apps) { app in Text(app.applicationName).tag(app.processID) }
+      }
+    }
   }
 }
 
 extension View {
-  fileprivate func refreshingBrowserSources(_ model: AppModel) -> some View {
+  fileprivate func refreshingAudioSources(_ model: AppModel) -> some View {
     self
       .onAppear { model.refreshSources() }
       .onReceive(

@@ -15,6 +15,6 @@
     <key>NSHighResolutionCapable</key><true/>
     <key>NSMicrophoneUsageDescription</key><string>Minutes records your microphone alongside meeting audio to include your voice in the transcript.</string>
     <key>NSCalendarsFullAccessUsageDescription</key><string>Minutes reads your calendars to find Google Meet meetings and ask whether you want to record when they start. Minutes never changes your calendar or starts recording automatically.</string>
-    <key>NSAudioCaptureUsageDescription</key><string>Minutes captures audio from the browser you choose to transcribe your meeting locally.</string>
+    <key>NSAudioCaptureUsageDescription</key><string>Minutes captures audio from the app you choose to transcribe your meeting locally.</string>
 </dict>
 </plist>

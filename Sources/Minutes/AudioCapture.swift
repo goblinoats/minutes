@@ -139,7 +139,7 @@ final class AudioSink: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, @
     files.removeAll()  // Finalize CAF headers before inference opens them.
     guard remote != nil || microphone != nil else {
       throw MinutesError.message(
-        "No audio was captured. Check the selected browser and microphone permissions.")
+        "No audio was captured. Check the selected app and microphone permissions.")
     }
     let tracks = AudioTracks(
       remote: remote, microphone: microphone,
@@ -154,7 +154,7 @@ final class AudioSink: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, @
 
 @MainActor
 final class AudioCapture {
-  private var browserTap: BrowserAudioTap?
+  private var appTap: AppAudioTap?
   private var microphone: AVCaptureSession?
   private var sink: AudioSink?
   private var microphoneObserver: NSObjectProtocol?
@@ -177,7 +177,7 @@ final class AudioCapture {
     let sink = AudioSink(directory: directory) { [weak self] message in
       Task { @MainActor [weak self] in self?.onFailure?(message) }
     }
-    let tap = BrowserAudioTap(queue: queue, sink: sink)
+    let tap = AppAudioTap(queue: queue, sink: sink)
     let session = AVCaptureSession()
     do {
       guard let device = AVCaptureDevice.default(for: .audio) else {
@@ -206,7 +206,7 @@ final class AudioCapture {
             "Microphone recording was interrupted. The partial recording is retained.")
         }
       }
-      browserTap = tap
+      appTap = tap
       microphone = session
       self.sink = sink
     } catch {
@@ -223,9 +223,9 @@ final class AudioCapture {
     if let microphoneObserver { NotificationCenter.default.removeObserver(microphoneObserver) }
     microphoneObserver = nil
     microphone?.stopRunning()
-    browserTap?.stop()
+    appTap?.stop()
     microphone = nil
-    browserTap = nil
+    appTap = nil
     self.sink = nil
     return try await withCheckedThrowingContinuation {
       (continuation: CheckedContinuation<AudioTracks, Error>) in

@@ -74,7 +74,7 @@ struct RecordingView<SystemSource: View, Accessory: View>: View {
         ) {
           systemSource
         }
-        .help("Audio from the selected browser and its tabs")
+        .help("Audio from the selected app")
       }
       .padding(.horizontal, compact ? 16 : 24)
       .padding(.vertical, 20)
@@ -110,7 +110,7 @@ struct RecordingView<SystemSource: View, Accessory: View>: View {
           .help(
             isRecording
               ? "Finish recording and transcribe this meeting"
-              : "Record the selected browser and your microphone")
+              : "Record the selected app and your microphone")
         }
       }
       .padding(condensed ? 16 : (compact ? 20 : 24))
