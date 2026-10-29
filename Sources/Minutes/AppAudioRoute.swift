@@ -80,17 +80,41 @@ struct AppAudioRoute {
 
 extension CaptureAudioFormat {
   static func stereo(_ buffer: AVAudioPCMBuffer, channels: [Int]) throws -> AVAudioPCMBuffer {
-    guard channels.count == 2, channels.allSatisfy({ $0 >= 0 && $0 < Int(buffer.format.channelCount) }),
-      buffer.format.commonFormat == .pcmFormatFloat32, let source = buffer.floatChannelData,
-      let format = AVAudioFormat(standardFormatWithSampleRate: buffer.format.sampleRate, channels: 2),
+    guard channels.count == 2,
+      channels.allSatisfy({ $0 >= 0 && $0 < Int(buffer.format.channelCount) }),
+      let format = AVAudioFormat(
+        standardFormatWithSampleRate: buffer.format.sampleRate, channels: 2),
       let result = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: buffer.frameLength)
-    else { throw MinutesError.message("The output device returned an unsupported channel layout. " + guidance) }
+    else {
+      throw MinutesError.message(
+        "The output device returned an unsupported channel layout. " + guidance)
+    }
     result.frameLength = buffer.frameLength
-    for (destination, channel) in channels.enumerated() {
-      for frame in 0..<Int(buffer.frameLength) {
-        result.floatChannelData![destination][frame] = buffer.format.isInterleaved
-          ? source[0][frame * Int(buffer.format.channelCount) + channel] : source[channel][frame]
+    let buffers = UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList)
+    func copy<Sample>(_ type: Sample.Type, convert: (Sample) -> Float) throws {
+      for (destination, channel) in channels.enumerated() {
+        let plane = buffer.format.isInterleaved ? 0 : channel
+        guard let data = buffers[plane].mData else {
+          throw MinutesError.message("The output device returned no audio data. " + guidance)
+        }
+        let source = data.assumingMemoryBound(to: Sample.self)
+        let offset = buffer.format.isInterleaved ? channel : 0
+        for frame in 0..<Int(buffer.frameLength) {
+          result.floatChannelData![destination][frame] = convert(
+            source[frame * buffer.stride + offset])
+        }
       }
+    }
+    // Device-specific taps retain the stream's PCM type. Normalize integer samples
+    // to the same full-scale range as floating-point audio before writing stereo.
+    switch buffer.format.commonFormat {
+    case .pcmFormatFloat32: try copy(Float.self) { $0 }
+    case .pcmFormatFloat64: try copy(Double.self) { Float($0) }
+    case .pcmFormatInt16: try copy(Int16.self) { Float($0) / 32768 }
+    case .pcmFormatInt32: try copy(Int32.self) { Float($0) / 2_147_483_648 }
+    default:
+      throw MinutesError.message(
+        "The output device returned an unsupported PCM format. " + guidance)
     }
     return result
   }
